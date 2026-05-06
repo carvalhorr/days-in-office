@@ -106,10 +106,55 @@ Code-specialized models will complete more tasks with fewer retries regardless o
 1. Each run directory (`runs/<tool>/<model>/`) is created fresh by `setup_run.sh` and must not exist beforehand.
 2. Only `ARCHITECTURE.md`, `TASKS.md`, and `CLAUDE.md` are copied in. No code, no Gradle files, no IDE config.
 3. The tool's process for each run operates only inside that run directory.
-4. Runs are **strictly sequential** — no two runs share the GPU simultaneously.
+4. Runs are **strictly sequential** — no two runs share the GPU simultaneously. This is enforced by a **lock file** (`experiment/.lock`), not by convention alone. See Section 3.4.
 5. The Ollama model is flushed from GPU memory between runs of different models (see `flush_model.sh`).
 6. Between runs of different tools using the same model, the model does NOT need to be flushed (it can stay loaded).
 7. Each run directory is initialized as its own git repo (`git init`) so all tools that require git work correctly.
+
+### 3.4 GPU Lock
+
+Only one run may hold the GPU at a time. `run_experiment.sh` enforces this with a lock file at `experiment/.lock`.
+
+**Lock file contents:**
+```
+tool=aider
+model=gemma4-31b
+pid=12345
+started=2026-05-07T09:00:00Z
+```
+
+**Acquire (at start of `run_experiment.sh`):**
+```bash
+LOCK_FILE="$(git rev-parse --show-toplevel)/experiment/.lock"
+
+acquire_lock() {
+  if [[ -f "$LOCK_FILE" ]]; then
+    LOCK_PID=$(grep "^pid=" "$LOCK_FILE" | cut -d= -f2)
+    if kill -0 "$LOCK_PID" 2>/dev/null; then
+      echo "ERROR: Another run is active (PID $LOCK_PID). See $LOCK_FILE for details."
+      cat "$LOCK_FILE"
+      exit 1
+    else
+      echo "WARNING: Stale lock found (PID $LOCK_PID no longer running). Removing."
+      rm -f "$LOCK_FILE"
+    fi
+  fi
+  printf "tool=%s\nmodel=%s\npid=%s\nstarted=%s\n" \
+    "$TOOL" "$MODEL_SHORT_NAME" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_FILE"
+}
+```
+
+**Release (always, including on crash via `trap`):**
+```bash
+release_lock() {
+  rm -f "$LOCK_FILE"
+}
+trap release_lock EXIT INT TERM
+```
+
+**Stale lock handling:** if the PID in the lock file is no longer running (process died without cleanup), the lock is considered stale and is removed automatically. A warning is printed to the log.
+
+**`experiment/.lock` is gitignored** — it is ephemeral and must never be committed.
 
 ### 3.3 Run Order
 
@@ -407,8 +452,9 @@ All scripts live in `experiment/scripts/`. All are Bash unless noted (Python 3.8
 **Usage:** `run_experiment.sh <tool> <model_short_name> <model_ollama_id>`
 
 The main loop. Drives one tool+model combination through all 20 tasks:
-1. Read all task IDs from TASKS.md (`parse_tasks.py --list`).
-2. For each task:
+1. **Acquire the GPU lock** (`experiment/.lock`). Exit immediately if another run holds it. Register `trap release_lock EXIT INT TERM` so the lock is always released, even on crash or Ctrl-C.
+2. Read all task IDs from TASKS.md (`parse_tasks.py --list`).
+3. For each task:
    a. Extract task body, QA commands, scope files (`parse_tasks.py`).
    b. Render prompt (`render_prompt.py`).
    c. Invoke `run_<tool>.sh` with timeout.
@@ -417,7 +463,8 @@ The main loop. Drives one tool+model combination through all 20 tasks:
    f. Run post-task measurements (`measure_metrics.sh`).
    g. Append result to `run.json` (`update_run_json.py`).
    h. Update TASKS.md status in run dir (`update_tasks_status.py`).
-3. Finalize `run.json` with aggregate metrics.
+4. Finalize `run.json` with aggregate metrics.
+5. **Release the GPU lock** (also released automatically by `trap` on any exit).
 
 ### 7.3 Tool Adapters (one per tool)
 
@@ -432,27 +479,35 @@ Output: exit 0 on success, non-zero on failure or timeout
 Stdout/stderr: all tool output (captured by caller to run.log)
 ```
 
-### 7.4 `setup_tool.sh`
+### 7.4 `check_lock.sh`
+**Usage:** `check_lock.sh`
+
+Prints the current lock status — useful to check whether a run is active before starting a new one:
+- If `experiment/.lock` exists and the PID is alive: prints the lock contents and exits 1.
+- If `experiment/.lock` exists but the PID is dead (stale): prints a warning and exits 2.
+- If no lock: prints "No run active." and exits 0.
+
+### 7.5 `setup_tool.sh`
 **Usage:** `setup_tool.sh <tool>`
 
 Verifies the tool is installed and prints its version. For OpenHands: verifies Docker is running and the OpenHands image is available. For Goose: verifies the binary is in PATH. Exits 1 if the tool is not ready.
 
-### 7.5 `pull_model.sh`
+### 7.6 `pull_model.sh`
 **Usage:** `pull_model.sh <model_ollama_id>`
 
 POSTs to `http://192.168.68.74:11434/api/pull`, streams progress, exits 0 on success.
 
-### 7.6 `flush_model.sh`
+### 7.7 `flush_model.sh`
 **Usage:** `flush_model.sh <model_ollama_id>`
 
 POSTs `{"model": "<id>", "keep_alive": 0}` to the Ollama generate endpoint. Waits for HTTP 200.
 
-### 7.7 `run_qa.sh`
+### 7.8 `run_qa.sh`
 **Usage:** `run_qa.sh <work_dir> <command>`
 
 Runs a single QA command inside `work_dir` with a 300-second timeout. Outputs JSON: `{"exit_code": 0, "passed": true, "duration_seconds": 12, "output": "..."}`.
 
-### 7.8 `measure_metrics.sh`
+### 7.9 `measure_metrics.sh`
 **Usage:** `measure_metrics.sh <work_dir> <task_id> [--build] [--tests] [--lint]`
 
 Runs the requested measurements and outputs a JSON fragment:
@@ -460,12 +515,12 @@ Runs the requested measurements and outputs a JSON fragment:
 {"build_success": true, "unit_test_pass_count": 12, "unit_test_fail_count": 0, "lint_error_count": null}
 ```
 
-### 7.9 `reset_run.sh`
+### 7.10 `reset_run.sh`
 **Usage:** `reset_run.sh --confirm <tool> <model_short_name>`
 
 Deletes `runs/<tool>/<model>/` and `experiment/results/<tool>/<model>/`. Requires `--confirm`.
 
-### 7.10 Python Helper Scripts
+### 7.11 Python Helper Scripts
 
 | Script | Responsibility |
 |---|---|

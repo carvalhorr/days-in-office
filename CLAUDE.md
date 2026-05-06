@@ -29,6 +29,30 @@ This is an Android app project. All implementation decisions are documented in `
 - Do not approve a task if any criterion is unmet, even if tests pass — some criteria are checked by grep, not tests.
 - Update the task status to `DONE` only when every criterion is confirmed.
 
+## Git Commit Conventions
+
+Every change must be committed. Use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <subject>
+```
+
+**Types:**
+- `feat` — new task implemented or new file created
+- `fix` — retry fix for a failing task
+- `docs` — change to ARCHITECTURE.md, TASKS.md, or CLAUDE.md
+- `chore` — tooling, .gitignore, scripts, setup
+
+**Scopes (for run repos):** the task ID — e.g. `feat(TASK-003): set up Room database`
+
+**Required commit messages:**
+- Task completed first attempt: `feat: complete TASK-XXX — <Title>`
+- Task completed after retries: `feat: complete TASK-XXX — <Title>` (final commit only)
+- Each retry fix: `fix: retry N for TASK-XXX — <what was wrong>`
+- Architecture deviation: `docs(architecture): <what changed and why>` — must precede the code commit
+
+**One commit per task.** Do not squash retry commits — the history of attempts is part of the experiment record.
+
 ## Project Commands
 
 ```bash
@@ -39,7 +63,7 @@ This is an Android app project. All implementation decisions are documented in `
 ./gradlew testDebugUnitTest
 
 # Specific test class
-./gradlew testDebugUnitTest --tests "com.daysInOffice.some.ClassName"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.some.ClassName"
 
 # Instrumented tests (requires connected device or emulator)
 ./gradlew connectedAndroidTest

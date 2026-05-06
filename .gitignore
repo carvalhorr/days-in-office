@@ -1,0 +1,17 @@
+# Experiment run directories — each has its own git repo
+runs/
+
+# Raw logs — too large to track; only run.json is tracked
+experiment/results/**/*.log
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+*.iml
+
+# Android build outputs (if any tooling generates them in root)
+build/
+.gradle/
+local.properties

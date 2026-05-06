@@ -35,14 +35,14 @@ Creates the Android project skeleton with all dependencies configured. Every sub
 - `app/build.gradle.kts`
 - `gradle/libs.versions.toml` (version catalog)
 - `app/src/main/AndroidManifest.xml`
-- `app/src/main/kotlin/com/daysInOffice/app/DaysInOfficeApp.kt`
-- `app/src/main/kotlin/com/daysInOffice/app/MainActivity.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/DaysInOfficeApp.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/MainActivity.kt`
 - `app/src/main/res/values/themes.xml`
 - `app/src/main/res/values/colors.xml`
 
 #### Implementation Details
-1. Use `com.daysInOffice` as the application ID.
-2. Set `minSdk = 26`, `targetSdk = 35`, `compileSdk = 35`.
+1. Use `com.carvalhorr.daysInOffice` as the application ID.
+2. Set `minSdk = 28`, `targetSdk = 35`, `compileSdk = 35`.
 3. Configure `libs.versions.toml` with all versions from `ARCHITECTURE.md` Section 2.
 4. Enable Kotlin 2.0 compose compiler plugin (`org.jetbrains.kotlin.plugin.compose`).
 5. Enable `kotlinOptions { jvmTarget = "17" }`.
@@ -81,15 +81,15 @@ grep "READ_CALENDAR" app/src/main/AndroidManifest.xml
 Defines all pure Kotlin data classes and enums that form the domain model. No Android dependencies. These are the contracts everything else is built against.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/core/domain/model/DayStatus.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/model/MandatePeriod.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/model/DetectionMethod.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/model/DayRecord.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/model/MandateConfig.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/model/DetectionConfig.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/model/ComplianceResult.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/model/Holiday.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/domain/model/ComplianceResultTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/model/DayStatus.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/model/MandatePeriod.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/model/DetectionMethod.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/model/DayRecord.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/model/MandateConfig.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/model/DetectionConfig.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/model/ComplianceResult.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/model/Holiday.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/domain/model/ComplianceResultTest.kt`
 
 #### Implementation Details
 Implement exactly as specified in ARCHITECTURE.md Sections 5.1. Additional detail:
@@ -113,7 +113,7 @@ Computed as: `(officeDays + unknownDays).toFloat() / totalWorkingDays.coerceAtLe
 #### Acceptance Criteria
 - [ ] All model classes compile with no warnings.
 - [ ] `DayStatus` has exactly 6 values: `OFFICE, REMOTE, HOLIDAY, PTO, WEEKEND, UNKNOWN`.
-- [ ] `MandatePeriod` has exactly 3 values: `WEEKLY, MONTHLY, ROLLING_4_WEEKS`.
+- [ ] `MandatePeriod` has exactly 4 values: `WEEKLY, MONTHLY, QUARTERLY, ROLLING_4_WEEKS`.
 - [ ] `DetectionMethod` has exactly 4 values: `WIFI_CONNECTED, WIFI_SCAN, GEOFENCE, MANUAL`.
 - [ ] `ComplianceResult.daysNeededToComply` is computed (not stored): `maxOf(0, ceil(targetPercentage * totalWorkingDays).toInt() - officeDays)`.
 - [ ] `ComplianceResult.isCompliant` is computed: `currentPercentage >= targetPercentage`.
@@ -125,7 +125,7 @@ Computed as: `(officeDays + unknownDays).toFloat() / totalWorkingDays.coerceAtLe
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.domain.model.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.domain.model.*"
 ```
 
 ---
@@ -139,14 +139,14 @@ Computed as: `(officeDays + unknownDays).toFloat() / totalWorkingDays.coerceAtLe
 Sets up the local database. All app data is persisted here. The schema must match ARCHITECTURE.md exactly — changing it later requires migrations.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/core/data/db/AppDatabase.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/data/db/entity/DayRecordEntity.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/data/db/entity/HolidayEntity.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/data/db/converter/TypeConverters.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/data/db/dao/DayRecordDao.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/data/db/dao/HolidayDao.kt`
-- `app/src/androidTest/kotlin/com/daysInOffice/core/data/db/DayRecordDaoTest.kt`
-- `app/src/androidTest/kotlin/com/daysInOffice/core/data/db/HolidayDaoTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/db/AppDatabase.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/db/entity/DayRecordEntity.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/db/entity/HolidayEntity.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/db/converter/TypeConverters.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/db/dao/DayRecordDao.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/db/dao/HolidayDao.kt`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/core/data/db/DayRecordDaoTest.kt`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/core/data/db/HolidayDaoTest.kt`
 
 #### Implementation Details
 1. Entities: match schema in ARCHITECTURE.md Section 4.1 exactly.
@@ -176,7 +176,7 @@ Sets up the local database. All app data is persisted here. The schema must matc
 
 #### QA Verification Steps
 ```bash
-./gradlew connectedAndroidTest --tests "com.daysInOffice.core.data.db.*"
+./gradlew connectedAndroidTest --tests "com.carvalhorr.daysInOffice.core.data.db.*"
 ```
 
 ---
@@ -190,17 +190,17 @@ Sets up the local database. All app data is persisted here. The schema must matc
 Implements the data layer repositories that bridge the domain layer to Room and DataStore. ViewModels and use cases depend only on the interfaces, never the implementations.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/core/domain/repository/DayRecordRepository.kt` (interface)
-- `app/src/main/kotlin/com/daysInOffice/core/domain/repository/HolidayRepository.kt` (interface)
-- `app/src/main/kotlin/com/daysInOffice/core/domain/repository/MandateConfigRepository.kt` (interface)
-- `app/src/main/kotlin/com/daysInOffice/core/data/datasource/PreferencesDataSource.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/data/repository/DayRecordRepositoryImpl.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/data/repository/HolidayRepositoryImpl.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/data/repository/MandateConfigRepositoryImpl.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/di/DatabaseModule.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/di/RepositoryModule.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/data/repository/DayRecordRepositoryImplTest.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/data/repository/MandateConfigRepositoryImplTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/repository/DayRecordRepository.kt` (interface)
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/repository/HolidayRepository.kt` (interface)
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/repository/MandateConfigRepository.kt` (interface)
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/datasource/PreferencesDataSource.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/repository/DayRecordRepositoryImpl.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/repository/HolidayRepositoryImpl.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/repository/MandateConfigRepositoryImpl.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/di/DatabaseModule.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/di/RepositoryModule.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/data/repository/DayRecordRepositoryImplTest.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/data/repository/MandateConfigRepositoryImplTest.kt`
 
 #### Implementation Details
 1. Repository interfaces: match ARCHITECTURE.md Section 5.2 exactly.
@@ -229,7 +229,7 @@ Implements the data layer repositories that bridge the domain layer to Room and 
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.data.repository.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.data.repository.*"
 ./gradlew kaptDebugKotlin
 ```
 
@@ -248,14 +248,14 @@ Implements the data layer repositories that bridge the domain layer to Room and 
 The mandate calculation is the heart of the app. This task implements the use cases that determine which days count as working days and computes the compliance percentage. Gets everything right or the whole app is wrong.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/core/domain/usecase/GetWorkingDaysUseCase.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/usecase/GetComplianceUseCase.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/usecase/RecordOfficeDayUseCase.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/usecase/RecordRemoteDayUseCase.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/usecase/GetCalendarMonthUseCase.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/domain/usecase/GetWorkingDaysUseCaseTest.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/domain/usecase/GetComplianceUseCaseTest.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/domain/usecase/RecordOfficeDayUseCaseTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/GetWorkingDaysUseCase.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/GetComplianceUseCase.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/RecordOfficeDayUseCase.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/RecordRemoteDayUseCase.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/GetCalendarMonthUseCase.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/GetWorkingDaysUseCaseTest.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/GetComplianceUseCaseTest.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/RecordOfficeDayUseCaseTest.kt`
 
 #### Implementation Details
 
@@ -276,7 +276,8 @@ The mandate calculation is the heart of the app. This task implements the use ca
   1. Combine `MandateConfig` flow + current date to determine period start/end.
   2. For `WEEKLY`: current ISO week (Mon–Sun).
   3. For `MONTHLY`: current calendar month.
-  4. For `ROLLING_4_WEEKS`: last 28 days from today.
+  4. For `QUARTERLY`: current calendar quarter (Q1 = Jan–Mar, Q2 = Apr–Jun, Q3 = Jul–Sep, Q4 = Oct–Dec).
+  5. For `ROLLING_4_WEEKS`: last 28 days from today.
   5. Call `GetWorkingDaysUseCase` for period.
   6. Fetch `DayRecord` list for period.
   7. Count `OFFICE`, `REMOTE`, `UNKNOWN` from records; days with no record = `UNKNOWN`.
@@ -305,6 +306,7 @@ The mandate calculation is the heart of the app. This task implements the use ca
 - [ ] `GetComplianceUseCaseTest` passes:
   - `given monthly period and 10 working days and 5 office records when invoked then currentPercentage=0.5 and isCompliant=true`
   - `given monthly period and 10 working days and 4 office records when invoked then daysNeededToComply=1`
+  - `given quarterly period when invoked then period spans correct calendar quarter`
   - `given rolling 4 weeks when invoked then period spans last 28 days from today`
   - `given a week with a holiday when invoked then holiday excluded from totalWorkingDays`
   - `given day with confirmedByUser=true when RecordOfficeDayUseCase called then record unchanged`
@@ -312,11 +314,11 @@ The mandate calculation is the heart of the app. This task implements the use ca
   - `given no existing record when invoked then OFFICE record created`
   - `given confirmed record when invoked then record NOT updated`
   - `given unconfirmed REMOTE record when invoked then record updated to OFFICE`
-- [ ] `./gradlew testDebugUnitTest --tests "com.daysInOffice.core.domain.usecase.*"` — all pass.
+- [ ] `./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.domain.usecase.*"` — all pass.
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.domain.usecase.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.domain.usecase.*"
 ```
 
 ---
@@ -330,11 +332,11 @@ The mandate calculation is the heart of the app. This task implements the use ca
 Reads PTO and public holidays from the device calendar so they are excluded from the mandate calculation. This is the primary mechanism to avoid penalizing users for time off.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/core/data/datasource/CalendarDataSource.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/domain/usecase/SyncCalendarUseCase.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/di/DataSourceModule.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/data/datasource/CalendarDataSourceTest.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/domain/usecase/SyncCalendarUseCaseTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/datasource/CalendarDataSource.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/SyncCalendarUseCase.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/di/DataSourceModule.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/data/datasource/CalendarDataSourceTest.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/SyncCalendarUseCaseTest.kt`
 
 #### Implementation Details
 
@@ -369,8 +371,8 @@ Reads PTO and public holidays from the device calendar so they are excluded from
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.data.datasource.*"
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.domain.usecase.SyncCalendarUseCaseTest"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.data.datasource.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.domain.usecase.SyncCalendarUseCaseTest"
 ```
 
 ---
@@ -388,9 +390,9 @@ Reads PTO and public holidays from the device calendar so they are excluded from
 Detects office presence by checking if the device is currently connected to the configured office Wi-Fi SSID. The simplest and most reliable detection method.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/core/detection/Detector.kt` (interface)
-- `app/src/main/kotlin/com/daysInOffice/core/detection/detector/WifiConnectedDetector.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/detection/WifiConnectedDetectorTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/detection/Detector.kt` (interface)
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/detection/detector/WifiConnectedDetector.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/detection/WifiConnectedDetectorTest.kt`
 
 #### Implementation Details
 `Detector` interface:
@@ -405,8 +407,17 @@ interface Detector {
 - Constructor: `context: Context`, `config: DetectionConfig`
 - `isAtOffice()`:
   1. If `config.wifiSsid` is null or blank, return false.
-  2. Get `WifiManager` from context.
-  3. Get `connectionInfo.ssid` — note: Android wraps SSID in quotes (`"\"OfficeName\""`), strip them.
+  2. Retrieve the connected SSID using a version switch:
+     - **API >= 31:** use `ConnectivityManager`:
+       ```kotlin
+       val cm = context.getSystemService(ConnectivityManager::class.java)
+       val ssid = (cm.getNetworkCapabilities(cm.activeNetwork)?.transportInfo as? WifiInfo)?.ssid
+       ```
+     - **API < 31:** use `WifiManager` (deprecated but functional):
+       ```kotlin
+       val ssid = context.getSystemService(WifiManager::class.java).connectionInfo.ssid
+       ```
+  3. Strip surrounding quotes from SSID (`"\"OfficeName\""` → `"OfficeName"`).
   4. Compare to `config.wifiSsid` (case-insensitive).
 - `isAvailable()`: returns `context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI)`.
 
@@ -417,11 +428,14 @@ interface Detector {
   - `given SSID wrapped in quotes when isAtOffice then quotes stripped before comparison`
   - `given config has null SSID when isAtOffice then returns false`
   - `given config has blank SSID when isAtOffice then returns false`
-- [ ] `WifiManager` is mocked — no real Wi-Fi access in tests.
+  - `given API level >= 31 when isAtOffice then ConnectivityManager path used`
+  - `given API level < 31 when isAtOffice then WifiManager.connectionInfo path used`
+- [ ] `WifiManager` and `ConnectivityManager` are mocked — no real Wi-Fi access in tests.
+- [ ] No deprecation suppression annotations on the class level — suppress only on the `< 31` branch with `@Suppress("DEPRECATION")`.
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.detection.WifiConnectedDetectorTest"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.detection.WifiConnectedDetectorTest"
 ```
 
 ---
@@ -435,8 +449,8 @@ interface Detector {
 Detects office presence by scanning for the office Wi-Fi SSID without requiring connection. Useful for users who use mobile data at the office.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/core/detection/detector/WifiScanDetector.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/detection/WifiScanDetectorTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/detection/detector/WifiScanDetector.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/detection/WifiScanDetectorTest.kt`
 
 #### Implementation Details
 `WifiScanDetector`:
@@ -460,7 +474,7 @@ Detects office presence by scanning for the office Wi-Fi SSID without requiring 
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.detection.WifiScanDetectorTest"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.detection.WifiScanDetectorTest"
 ```
 
 ---
@@ -474,9 +488,9 @@ Detects office presence by scanning for the office Wi-Fi SSID without requiring 
 Detects office presence based on GPS proximity to the configured office location. Covers users who don't connect to office Wi-Fi.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/core/detection/detector/GeofenceDetector.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/detection/receiver/GeofenceBroadcastReceiver.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/detection/GeofenceDetectorTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/detection/detector/GeofenceDetector.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/detection/receiver/GeofenceBroadcastReceiver.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/detection/GeofenceDetectorTest.kt`
 
 #### Implementation Details
 `GeofenceDetector`:
@@ -508,7 +522,7 @@ Detects office presence based on GPS proximity to the configured office location
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.detection.GeofenceDetectorTest"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.detection.GeofenceDetectorTest"
 grep "GeofenceBroadcastReceiver" app/src/main/AndroidManifest.xml
 ```
 
@@ -523,11 +537,11 @@ grep "GeofenceBroadcastReceiver" app/src/main/AndroidManifest.xml
 The orchestrator coordinates all detection methods. The WorkManager worker schedules automatic detection throughout the workday. This is the glue that makes the app automatic.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/core/detection/DetectionOrchestrator.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/detection/worker/DayDetectionWorker.kt`
-- `app/src/main/kotlin/com/daysInOffice/core/di/DetectorModule.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/detection/DetectionOrchestratorTest.kt`
-- `app/src/test/kotlin/com/daysInOffice/core/detection/DayDetectionWorkerTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/detection/DetectionOrchestrator.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/detection/worker/DayDetectionWorker.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/di/DetectorModule.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/detection/DetectionOrchestratorTest.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/detection/DayDetectionWorkerTest.kt`
 
 #### Implementation Details
 `DetectionOrchestrator`:
@@ -570,8 +584,8 @@ The orchestrator coordinates all detection methods. The WorkManager worker sched
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.detection.*"
-grep "DayDetectionWorker" app/src/main/kotlin/com/daysInOffice/app/DaysInOfficeApp.kt
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.detection.*"
+grep "DayDetectionWorker" app/src/main/kotlin/com/carvalhorr/daysInOffice/app/DaysInOfficeApp.kt
 ```
 
 ---
@@ -589,8 +603,8 @@ grep "DayDetectionWorker" app/src/main/kotlin/com/daysInOffice/app/DaysInOfficeA
 Sets up the navigation graph. All screens route through this. Must be in place before any screen UI is implemented.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/app/navigation/AppNavigation.kt`
-- `app/src/main/kotlin/com/daysInOffice/app/navigation/Screen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/navigation/AppNavigation.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/navigation/Screen.kt`
 
 #### Implementation Details
 `Screen` — sealed class with object entries and `route: String`:
@@ -626,7 +640,7 @@ Create `MainViewModel` with single state: `startDestination: String`.
 #### QA Verification Steps
 ```bash
 ./gradlew assembleDebug
-./gradlew testDebugUnitTest --tests "com.daysInOffice.app.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.app.*"
 ```
 
 ---
@@ -640,13 +654,13 @@ Create `MainViewModel` with single state: `startDestination: String`.
 The first-run experience. Users configure their mandate, period, detection method, and calendar sync. Must be frictionless — a bad onboarding means users abandon the app. Completes by setting `onboarding_complete=true`.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/feature/onboarding/OnboardingViewModel.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/onboarding/ui/OnboardingScreen.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/onboarding/ui/MandateSetupStep.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/onboarding/ui/PeriodSelectionStep.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/onboarding/ui/DetectionSetupStep.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/onboarding/ui/CalendarSetupStep.kt`
-- `app/src/test/kotlin/com/daysInOffice/feature/onboarding/OnboardingViewModelTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/onboarding/OnboardingViewModel.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/onboarding/ui/OnboardingScreen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/onboarding/ui/MandateSetupStep.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/onboarding/ui/PeriodSelectionStep.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/onboarding/ui/DetectionSetupStep.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/onboarding/ui/CalendarSetupStep.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/feature/onboarding/OnboardingViewModelTest.kt`
 
 #### Implementation Details
 `OnboardingViewModel`:
@@ -669,7 +683,7 @@ The first-run experience. Users configure their mandate, period, detection metho
 
 **Step 2 — Period Selection:**
 - Title: "How is your mandate measured?"
-- 3 radio options: Weekly / Monthly / Rolling 4 weeks.
+- 4 radio options: Weekly / Monthly / Quarterly / Rolling 4 weeks.
 - Brief description under each option.
 
 **Step 3 — Detection Setup:**
@@ -698,11 +712,11 @@ UI: use `HorizontalPager` or step-by-step with animated progress indicator at to
 - [ ] All 4 steps render without crash (Compose UI smoke test).
 - [ ] Progress indicator shows correct step.
 - [ ] "Next" disabled on Detection step if no method selected (and MANUAL not explicitly counted as a "setup" step — it's always available).
-- [ ] `./gradlew testDebugUnitTest --tests "com.daysInOffice.feature.onboarding.*"` passes.
+- [ ] `./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.onboarding.*"` passes.
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.feature.onboarding.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.onboarding.*"
 ./gradlew assembleDebug
 ```
 
@@ -721,11 +735,11 @@ UI: use `HorizontalPager` or step-by-step with animated progress indicator at to
 The main screen users see every day. Must immediately answer: "Am I on track?" Compliance ring is the hero element.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/feature/dashboard/DashboardViewModel.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/dashboard/ui/DashboardScreen.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/dashboard/ui/ComplianceRing.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/dashboard/ui/QuickCheckInButton.kt`
-- `app/src/test/kotlin/com/daysInOffice/feature/dashboard/DashboardViewModelTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/DashboardViewModel.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/ui/DashboardScreen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/ui/ComplianceRing.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/ui/QuickCheckInButton.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/DashboardViewModelTest.kt`
 
 #### Implementation Details
 `DashboardViewModel`:
@@ -761,12 +775,12 @@ The main screen users see every day. Must immediately answer: "Am I on track?" C
   - `given today is a confirmed office day when checkInToday called then record not overwritten`
 - [ ] `ComplianceRing` renders with correct color for 35% (Red), 45% (Amber), 55% (Green).
 - [ ] `QuickCheckInButton` shows "Checked in ✓" when `todayStatus == OFFICE`.
-- [ ] `./gradlew testDebugUnitTest --tests "com.daysInOffice.feature.dashboard.*"` passes.
+- [ ] `./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.dashboard.*"` passes.
 - [ ] `./gradlew assembleDebug` succeeds.
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.feature.dashboard.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.dashboard.*"
 ./gradlew assembleDebug
 ```
 
@@ -781,11 +795,11 @@ The main screen users see every day. Must immediately answer: "Am I on track?" C
 Shows users their full history. Users can review and correct any day. This is the trust mechanism — users can see exactly how the app has been tracking them and fix mistakes.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/feature/calendar/CalendarViewModel.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/calendar/ui/CalendarScreen.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/calendar/ui/MonthCalendarView.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/calendar/ui/DayDetailSheet.kt`
-- `app/src/test/kotlin/com/daysInOffice/feature/calendar/CalendarViewModelTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/calendar/CalendarViewModel.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/calendar/ui/CalendarScreen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/calendar/ui/MonthCalendarView.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/calendar/ui/DayDetailSheet.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/feature/calendar/CalendarViewModelTest.kt`
 
 #### Implementation Details
 `CalendarViewModel`:
@@ -819,11 +833,11 @@ Month navigation: left/right chevrons, current month name + year centered.
 - [ ] `MonthCalendarView` renders 28–31 day cells depending on month.
 - [ ] Each `DayStatus` maps to a distinct color in the calendar.
 - [ ] `DayDetailSheet` shows all 3 action buttons for an UNKNOWN day.
-- [ ] `./gradlew testDebugUnitTest --tests "com.daysInOffice.feature.calendar.*"` passes.
+- [ ] `./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.calendar.*"` passes.
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.feature.calendar.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.calendar.*"
 ./gradlew assembleDebug
 ```
 
@@ -838,9 +852,9 @@ Month navigation: left/right chevrons, current month name + year centered.
 Users need to reconfigure the app after onboarding — change detection method, update the office SSID if it changes, adjust mandate target.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/feature/settings/SettingsViewModel.kt`
-- `app/src/main/kotlin/com/daysInOffice/feature/settings/ui/SettingsScreen.kt`
-- `app/src/test/kotlin/com/daysInOffice/feature/settings/SettingsViewModelTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/SettingsViewModel.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/SettingsScreen.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/feature/settings/SettingsViewModelTest.kt`
 
 #### Implementation Details
 `SettingsViewModel`:
@@ -862,11 +876,11 @@ Users need to reconfigure the app after onboarding — change detection method, 
   - `given resetOnboarding called then onboarding_complete set to false`
 - [ ] Settings screen renders all 4 sections without crash.
 - [ ] Changes to mandate percentage are persisted (verify via `MandateConfigRepository` mock).
-- [ ] `./gradlew testDebugUnitTest --tests "com.daysInOffice.feature.settings.*"` passes.
+- [ ] `./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.settings.*"` passes.
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.feature.settings.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.settings.*"
 ./gradlew assembleDebug
 ```
 
@@ -885,9 +899,9 @@ Users need to reconfigure the app after onboarding — change detection method, 
 A morning prompt helps users who rely on manual check-in remember to log their day. Without this, manual users will forget and their data will be inaccurate.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/notification/NotificationScheduler.kt`
-- `app/src/main/kotlin/com/daysInOffice/notification/DailyCheckInNotificationWorker.kt`
-- `app/src/test/kotlin/com/daysInOffice/notification/DailyCheckInNotificationWorkerTest.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/notification/NotificationScheduler.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/notification/DailyCheckInNotificationWorker.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/notification/DailyCheckInNotificationWorkerTest.kt`
 
 #### Implementation Details
 `DailyCheckInNotificationWorker` (`CoroutineWorker`, `@HiltWorker`):
@@ -913,11 +927,11 @@ A morning prompt helps users who rely on manual check-in remember to log their d
   - `given today is a working day with no record when doWork then notification posted`
   - `given doWork succeeds then returns Result.success`
 - [ ] Notification has exactly 2 actions.
-- [ ] `./gradlew testDebugUnitTest --tests "com.daysInOffice.notification.*"` passes.
+- [ ] `./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.notification.*"` passes.
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.notification.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.notification.*"
 ```
 
 ---
@@ -931,8 +945,8 @@ A morning prompt helps users who rely on manual check-in remember to log their d
 A glanceable widget lets users check compliance and check in without opening the app.
 
 #### Scope — Files to Create
-- `app/src/main/kotlin/com/daysInOffice/widget/CheckInWidget.kt`
-- `app/src/main/kotlin/com/daysInOffice/widget/CheckInWidgetReceiver.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/widget/CheckInWidget.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/widget/CheckInWidgetReceiver.kt`
 - `app/src/main/res/xml/check_in_widget_info.xml`
 
 #### Implementation Details
@@ -985,9 +999,9 @@ grep "check_in_widget_info" app/src/main/AndroidManifest.xml
 Verifies the critical user journeys work end-to-end with a real in-memory database. These are the QA regression baseline.
 
 #### Scope — Files to Create
-- `app/src/androidTest/kotlin/com/daysInOffice/DashboardIntegrationTest.kt`
-- `app/src/androidTest/kotlin/com/daysInOffice/CalendarIntegrationTest.kt`
-- `app/src/androidTest/kotlin/com/daysInOffice/ComplianceCalculationIntegrationTest.kt`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/DashboardIntegrationTest.kt`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/CalendarIntegrationTest.kt`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/ComplianceCalculationIntegrationTest.kt`
 
 #### Test Scenarios
 
@@ -1030,7 +1044,7 @@ Verifies the critical user journeys work end-to-end with a real in-memory databa
 Android runtime permissions must be requested correctly. Asking at the wrong time or not handling denial gracefully breaks detection silently.
 
 #### Scope — Files to Create/Modify
-- `app/src/main/kotlin/com/daysInOffice/core/permission/PermissionManager.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/permission/PermissionManager.kt`
 - Modify: `DetectionSetupStep.kt` (TASK-012) — integrate permission requests
 
 #### Implementation Details
@@ -1056,11 +1070,11 @@ In `DetectionSetupStep`:
   - `given MANUAL only when requiredPermissions then empty list`
 - [ ] Permission request flow: fine location requested before background location.
 - [ ] Denial does not crash the app; user can still complete onboarding.
-- [ ] `./gradlew testDebugUnitTest --tests "com.daysInOffice.core.permission.*"` passes.
+- [ ] `./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.permission.*"` passes.
 
 #### QA Verification Steps
 ```bash
-./gradlew testDebugUnitTest --tests "com.daysInOffice.core.permission.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.permission.*"
 ./gradlew assembleDebug
 ```
 

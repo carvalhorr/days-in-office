@@ -15,7 +15,7 @@
 | Component | Library / Version |
 |---|---|
 | Language | Kotlin 2.0.0 |
-| Min SDK | 26 (Android 8.0) |
+| Min SDK | 28 (Android 9.0) |
 | Target SDK | 35 |
 | Build Tools | AGP 8.5.0 |
 | UI | Jetpack Compose (BOM 2024.09.00) |
@@ -37,7 +37,7 @@
 ## 3. Package Structure
 
 ```
-com.daysInOffice/
+com.carvalhorr.daysInOffice/
 ├── app/
 │   ├── DaysInOfficeApp.kt          # @HiltAndroidApp Application class
 │   └── MainActivity.kt             # Single activity, hosts NavHost
@@ -64,7 +64,7 @@ com.daysInOffice/
 │   │   │   ├── DayRecord.kt
 │   │   │   ├── DayStatus.kt        # enum: OFFICE, REMOTE, HOLIDAY, PTO, WEEKEND, UNKNOWN
 │   │   │   ├── MandateConfig.kt
-│   │   │   ├── MandatePeriod.kt    # enum: WEEKLY, MONTHLY, ROLLING_4_WEEKS
+│   │   │   ├── MandatePeriod.kt    # enum: WEEKLY, MONTHLY, QUARTERLY, ROLLING_4_WEEKS
 │   │   │   ├── DetectionMethod.kt  # enum: WIFI_CONNECTED, WIFI_SCAN, GEOFENCE, MANUAL
 │   │   │   ├── DetectionConfig.kt
 │   │   │   ├── ComplianceResult.kt
@@ -333,9 +333,11 @@ interface Detector {
 ```
 
 ### 6.2 WifiConnectedDetector
-- Uses `WifiManager.connectionInfo.ssid`
 - Requires `ACCESS_FINE_LOCATION` (Android 9+)
 - Returns true if connected SSID matches configured `wifiSsid`
+- **API version switch for SSID retrieval:**
+  - API >= 31: `ConnectivityManager.getNetworkCapabilities(activeNetwork)?.transportInfo as? WifiInfo`
+  - API < 31: `WifiManager.connectionInfo.ssid` (deprecated; suppress with `@Suppress("DEPRECATION")` on that branch only)
 
 ### 6.3 WifiScanDetector
 - Uses `WifiManager.startScan()` + `getScanResults()`
@@ -474,7 +476,7 @@ Modules to create:
 | `UseCaseModule` | Use cases (if needed) |
 | `DataSourceModule` | CalendarDataSource, PreferencesDataSource |
 
-All modules in `com.daysInOffice.core.di` package.
+All modules in `com.carvalhorr.daysInOffice.core.di` package.
 
 ---
 

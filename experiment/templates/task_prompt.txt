@@ -1,0 +1,22 @@
+You are implementing an Android application called "Days in Office".
+
+The architecture specification is:
+
+<architecture>
+{{ARCHITECTURE_SUMMARY}}
+</architecture>
+
+Your current task is {{TASK_ID}}: {{TASK_TITLE}}.
+
+<task>
+{{TASK_BODY}}
+</task>
+
+Instructions:
+1. Read the architecture specification fully before writing any code.
+2. Implement exactly the files listed in "Scope — Files to Create".
+3. Follow every constraint in "Implementation Details" exactly.
+4. Write all tests specified in the task.
+5. Do not create files not listed in the task scope.
+6. After implementing, update the task status in TASKS.md from NOT_STARTED to DONE.
+7. Commit with message: feat: complete {{TASK_ID}} — {{TASK_TITLE}}

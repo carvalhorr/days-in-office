@@ -1,0 +1,10 @@
+The previous implementation attempt for {{TASK_ID}} failed QA verification (attempt {{ATTEMPT_NUMBER}}).
+
+Failing command output:
+
+<failure>
+{{FAILURE_OUTPUT}}
+</failure>
+
+Review the error carefully. Fix the implementation so the QA verification passes.
+Commit the fix with message: fix: retry {{ATTEMPT_NUMBER}} for {{TASK_ID}}

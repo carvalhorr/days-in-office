@@ -10,6 +10,9 @@ experiment/results/**/*.log
 # macOS
 .DS_Store
 
+# Claude Code local state
+.claude/
+
 # IDE
 .idea/
 *.iml

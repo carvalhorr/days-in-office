@@ -13,6 +13,13 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(git -C "$SCRIPTS_DIR" rev-parse --show-toplevel)"
 OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.68.74:11434}"
 
+# Ensure JDK 17 and Android SDK are set for Gradle builds
+export JAVA_HOME="${JAVA_HOME:-/usr/local/opt/openjdk@17}"
+export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+export OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
+export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://192.168.68.74:11434/v1}"
+
 TOOL="${1:?Usage: run_experiment.sh <tool> <model_short_name> <model_ollama_id>}"
 MODEL="${2:?}"
 MODEL_OLLAMA_ID="${3:?}"

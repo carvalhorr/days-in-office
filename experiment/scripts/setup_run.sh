@@ -7,6 +7,11 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(git -C "$SCRIPTS_DIR" rev-parse --show-toplevel)"
 OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.68.74:11434}"
 
+# Ensure JDK 17 and Android SDK are on PATH for this session
+export JAVA_HOME="${JAVA_HOME:-/usr/local/opt/openjdk@17}"
+export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+
 TOOL="${1:?Usage: setup_run.sh <tool> <model_short_name>}"
 MODEL="${2:?}"
 

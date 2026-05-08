@@ -19,6 +19,15 @@ if [[ ! -d "$WORK_DIR" ]]; then
   exit 1
 fi
 
+# Write a per-invocation model settings file to set temperature=0.2
+SETTINGS_FILE=$(mktemp /tmp/aider_settings_XXXXXX.yml)
+cat > "$SETTINGS_FILE" <<YAML
+- name: "ollama/$MODEL_ID"
+  extra_params:
+    temperature: 0.2
+YAML
+trap "rm -f '$SETTINGS_FILE'" EXIT
+
 cd "$WORK_DIR"
 
 exec timeout "$TOOL_TIMEOUT" aider \
@@ -27,7 +36,7 @@ exec timeout "$TOOL_TIMEOUT" aider \
   --no-auto-commits \
   --yes-always \
   --no-suggest-shell-commands \
-  --set-env "AIDER_MODEL_SETTINGS_temperature=0.2" \
+  --model-settings-file "$SETTINGS_FILE" \
   --message "$(cat "$PROMPT_FILE")" \
   --read ARCHITECTURE.md \
   --read TASKS.md \

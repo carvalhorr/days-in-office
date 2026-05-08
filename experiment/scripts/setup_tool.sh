@@ -30,13 +30,7 @@ case "$TOOL" in
     ;;
 
   openhands)
-    echo "Checking OpenHands..."
-    if ! python3 -m openhands.core.main --help &>/dev/null 2>&1; then
-      echo "ERROR: OpenHands not importable. Install with: pip install openhands"
-      exit 1
-    fi
-    OH_VER=$(python3 -m openhands.core.main --version 2>&1 | head -1 || echo "unknown")
-    echo "  OpenHands: $OH_VER"
+    echo "Checking OpenHands (Docker mode)..."
     if ! command -v docker &>/dev/null; then
       echo "ERROR: docker not found in PATH (required by OpenHands)"
       exit 1
@@ -45,7 +39,16 @@ case "$TOOL" in
       echo "ERROR: Docker daemon is not running"
       exit 1
     fi
-    echo "  Docker: OK"
+    DOCKER_VER=$(docker --version 2>&1 | head -1)
+    echo "  $DOCKER_VER"
+    OPENHANDS_IMAGE="${OPENHANDS_IMAGE:-ghcr.io/all-hands-ai/openhands:latest}"
+    echo "  Checking for image $OPENHANDS_IMAGE ..."
+    if ! docker image inspect "$OPENHANDS_IMAGE" &>/dev/null; then
+      echo "  Image not found locally. Pulling (this may take a while)..."
+      docker pull "$OPENHANDS_IMAGE" || { echo "ERROR: failed to pull $OPENHANDS_IMAGE"; exit 1; }
+    fi
+    OH_VER=$(docker run --rm "$OPENHANDS_IMAGE" python -m openhands.core.main --version 2>&1 | head -1 || echo "unknown")
+    echo "  OpenHands: $OH_VER"
     check_ollama
     echo "openhands: READY"
     ;;

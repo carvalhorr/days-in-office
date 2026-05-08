@@ -209,7 +209,7 @@ Implements the data layer repositories that bridge the domain layer to Room and 
 4. `MandateConfigRepositoryImpl`: reads/writes all settings from `PreferencesDataSource`.
 5. `PreferencesDataSource`: wraps DataStore Preferences. Keys match ARCHITECTURE.md Section 8. Uses `kotlinx.serialization` for JSON serialization of `Set<DayOfWeek>` and `Set<DetectionMethod>`.
 6. Default `MandateConfig`: `targetPercentage=0.5f`, `period=MONTHLY`, `workingDays=MON-FRI`.
-7. Default `DetectionConfig`: `enabledMethods=emptySet()`, all nullable fields null, `requireConfirmation=false`.
+7. Default `DetectionConfig`: `enabledMethods=emptySet()`, all nullable fields null.
 8. `DatabaseModule`: `@InstallIn(SingletonComponent::class)`, provides `AppDatabase` (singleton) and DAOs.
 9. `RepositoryModule`: `@InstallIn(SingletonComponent::class)`, binds implementations to interfaces.
 10. Unit tests use MockK to mock DAOs and DataStore.
@@ -669,6 +669,7 @@ The first-run experience. Users configure their mandate, period, detection metho
 - `fun nextStep()`: advances step; on step 4 (after Calendar): saves all config, sets `onboarding_complete=true`, emits navigation event.
 - `fun prevStep()`: goes back.
 - `fun updateMandatePercentage(value: Float)`: updates state.
+- `fun updateWorkingDays(days: Set<DayOfWeek>)`: updates `mandateConfig.workingDays`; must contain at least one day.
 - `fun updatePeriod(period: MandatePeriod)`: updates state.
 - `fun toggleDetectionMethod(method: DetectionMethod)`: toggles in set.
 - `fun updateWifiSsid(ssid: String)`: updates state.
@@ -678,8 +679,9 @@ The first-run experience. Users configure their mandate, period, detection metho
 **Step 1 — Mandate Setup:**
 - Title: "What's your office mandate?"
 - Slider for percentage (25%–100%, step 5%).
-- Display: "X days out of 5 per week" (for weekly) or "X% of working days".
+- Display: "X% of working days".
 - Default: 50%.
+- Working days row: label "Which days do you work?" + a row of 7 toggleable day chips (M T W T F S S). Mon–Fri selected by default. At least one day must remain selected. Sat/Sun chips are visually de-emphasised but still tappable.
 
 **Step 2 — Period Selection:**
 - Title: "How is your mandate measured?"
@@ -709,8 +711,11 @@ UI: use `HorizontalPager` or step-by-step with animated progress indicator at to
   - `given step 3 when nextStep then navigation event emitted`
   - `given toggleDetectionMethod WIFI_CONNECTED twice then method removed from set`
   - `given updateWifiSsid called then state reflects new SSID`
+  - `given updateWorkingDays called with empty set then working days unchanged (at least one required)`
+  - `given updateWorkingDays called with {MON, WED, FRI} then mandateConfig.workingDays updated`
 - [ ] All 4 steps render without crash (Compose UI smoke test).
 - [ ] Progress indicator shows correct step.
+- [ ] Working days chips on Mandate step: Mon–Fri selected by default; toggling a chip updates selection; deselecting the last chip has no effect.
 - [ ] "Next" disabled on Detection step if no method selected (and MANUAL not explicitly counted as a "setup" step — it's always available).
 - [ ] `./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.onboarding.*"` passes.
 
@@ -861,20 +866,26 @@ Users need to reconfigure the app after onboarding — change detection method, 
 - Loads `MandateConfig` and `DetectionConfig` from repositories.
 - Exposes same update functions as `OnboardingViewModel` (consider extracting a shared `ConfigViewModel` — only if it doesn't add complexity; otherwise just duplicate).
 - Additional: `fun resetOnboarding()` — sets `onboarding_complete=false`, triggers navigation to Onboarding.
+- `fun updateWorkingDays(days: Set<DayOfWeek>)`: same guard as onboarding (at least one day required).
 - `fun exportData()`: deferred — show "Coming soon" snackbar.
 
 `SettingsScreen` sections:
-1. **Mandate** — percentage slider, period selector.
+1. **Mandate** — percentage slider, period selector, working days chip row.
 2. **Detection** — checkboxes per method, SSID field (if applicable), geofence setup.
 3. **Calendar** — toggle sync, "Sync Now" button, last sync timestamp.
 4. **Data** — "Export CSV" (coming soon), "Reset Onboarding".
 5. App version at bottom.
 
+Working days in Settings: tapping the "Working days" row opens a bottom sheet with the same M T W T F S S chip row used in onboarding. Current selection is pre-filled from `MandateConfig`. Save updates `MandateConfig.workingDays` via `MandateConfigRepository`.
+
 #### Acceptance Criteria
 - [ ] `SettingsViewModelTest` passes:
   - `given loaded config when updateMandatePercentage then config saved`
   - `given resetOnboarding called then onboarding_complete set to false`
+  - `given updateWorkingDays called with non-empty set then mandateConfig saved with new working days`
+  - `given updateWorkingDays called with empty set then config unchanged`
 - [ ] Settings screen renders all 4 sections without crash.
+- [ ] Working days row displays current selection (e.g. "Mon – Fri" or individual chip labels).
 - [ ] Changes to mandate percentage are persisted (verify via `MandateConfigRepository` mock).
 - [ ] `./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.settings.*"` passes.
 

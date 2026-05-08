@@ -242,8 +242,7 @@ data class DetectionConfig(
     val wifiSsid: String?,             // for WIFI_CONNECTED and WIFI_SCAN
     val geofenceLatitude: Double?,
     val geofenceLongitude: Double?,
-    val geofenceRadiusMeters: Float?,
-    val requireConfirmation: Boolean   // if true, auto-detection creates an UNKNOWN pending entry
+    val geofenceRadiusMeters: Float?
 )
 ```
 
@@ -397,7 +396,6 @@ Stored in a single `PreferencesDataSource` using DataStore Preferences:
 | `geofence_lat` | Float | |
 | `geofence_lng` | Float | |
 | `geofence_radius` | Float | meters |
-| `require_confirmation` | Boolean | |
 | `onboarding_complete` | Boolean | |
 | `calendar_sync_enabled` | Boolean | |
 | `geofence_inside` | Boolean | current geofence state |
@@ -430,10 +428,11 @@ SETTINGS        /settings
   - `HOLIDAY` / `PTO` → Grey
   - `WEEKEND` → Light Grey
   - `UNKNOWN` → Amber/Yellow
-- **Compliance indicator:** Circular progress ring on Dashboard
-  - < 40% → Red
-  - 40–49% → Amber
-  - ≥ 50% → Green
+- **Compliance indicator:** Circular progress ring on Dashboard. Thresholds are relative to the user's configured `targetPercentage` (T):
+  - `currentPercentage ≥ T` → Green
+  - `currentPercentage ≥ T − 10pp` and `< T` → Amber
+  - `currentPercentage < T − 10pp` → Red
+- **Working days:** User-configurable in onboarding (Mandate step) and Settings → Mandate. Displayed as a row of toggleable day chips (M T W T F S S). Default: Mon–Fri. Saturday and Sunday can be enabled for non-standard schedules but are never included unless explicitly selected.
 - All screens use `Scaffold` + top app bar
 - State management: `UiState` sealed class per ViewModel (`Loading`, `Success`, `Error`)
 

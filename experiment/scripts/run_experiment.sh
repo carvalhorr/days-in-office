@@ -189,11 +189,14 @@ for TASK_ID in $TASK_IDS; do
   TASK_STATUS_FINAL="FAILED"
   ATTEMPTS=0
   FAILURE_REASONS=()
+  ATTEMPT_LOG=()
   QA_RESULTS="[]"
   COMMIT_HASH=""
 
   for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
     ATTEMPTS=$ATTEMPT
+    ATTEMPT_START_TIME=$(date +%Y-%m-%dT%H:%M:%S)
+    ATTEMPT_START_SECS=$(date +%s)
     echo "── Attempt $ATTEMPT of $MAX_ATTEMPTS ──"
 
     # Build prompt
@@ -241,6 +244,8 @@ for TASK_ID in $TASK_IDS; do
       git -C "$RUN_DIR" add -A 2>/dev/null || true
       git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
         git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — tool error (exit $TOOL_EXIT)"
+      ATTEMPT_END_SECS=$(date +%s)
+      ATTEMPT_LOG+=("{\"attempt\":$ATTEMPT,\"start_time\":\"$ATTEMPT_START_TIME\",\"end_time\":\"$(date +%Y-%m-%dT%H:%M:%S)\",\"duration_seconds\":$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),\"outcome\":\"${FAILURE_REASONS[-1]}\"}")
       continue
     fi
 
@@ -278,6 +283,8 @@ for TASK_ID in $TASK_IDS; do
       git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
         git -C "$RUN_DIR" commit -q -m "feat: complete $TASK_ID — $TASK_TITLE"
       COMMIT_HASH=$(git -C "$RUN_DIR" rev-parse HEAD 2>/dev/null || echo "")
+      ATTEMPT_END_SECS=$(date +%s)
+      ATTEMPT_LOG+=("{\"attempt\":$ATTEMPT,\"start_time\":\"$ATTEMPT_START_TIME\",\"end_time\":\"$(date +%Y-%m-%dT%H:%M:%S)\",\"duration_seconds\":$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),\"outcome\":\"DONE\"}")
       break
     else
       echo "  ✗ QA failed on attempt $ATTEMPT"
@@ -287,6 +294,8 @@ for TASK_ID in $TASK_IDS; do
       git -C "$RUN_DIR" add -A 2>/dev/null || true
       git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
         git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — QA failed"
+      ATTEMPT_END_SECS=$(date +%s)
+      ATTEMPT_LOG+=("{\"attempt\":$ATTEMPT,\"start_time\":\"$ATTEMPT_START_TIME\",\"end_time\":\"$(date +%Y-%m-%dT%H:%M:%S)\",\"duration_seconds\":$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),\"outcome\":\"QA_FAIL\"}")
     fi
   done  # attempts
 
@@ -313,12 +322,14 @@ print(json.dumps(files))" || echo "[]")
 
   # Build task record JSON
   FAILURE_REASONS_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1:]))" "${FAILURE_REASONS[@]+"${FAILURE_REASONS[@]}"}")
+  ATTEMPT_LOG_JSON="[$(IFS=','; echo "${ATTEMPT_LOG[*]}")]"
   TASK_RECORD=$(python3 -c "
 import json, sys
 metrics = json.loads(sys.argv[1])
 qa = json.loads(sys.argv[2])
 files = json.loads(sys.argv[3])
 reasons = json.loads(sys.argv[4])
+attempt_log = json.loads(sys.argv[5])
 record = {
   'task_id': '$TASK_ID',
   'status': '$TASK_STATUS_FINAL',
@@ -326,6 +337,7 @@ record = {
   'end_time': '$(date +%Y-%m-%dT%H:%M:%S)',
   'duration_seconds': $TASK_DURATION,
   'attempts': $ATTEMPTS,
+  'attempt_log': attempt_log,
   'failure_reasons': reasons,
   'qa_results': qa,
   'build_success': metrics.get('build_success'),
@@ -336,7 +348,7 @@ record = {
   'commit_hash': '$COMMIT_HASH' or None,
 }
 print(json.dumps(record))
-" "$METRICS_JSON" "$QA_RESULTS" "$FILES_CREATED" "$FAILURE_REASONS_JSON")
+" "$METRICS_JSON" "$QA_RESULTS" "$FILES_CREATED" "$FAILURE_REASONS_JSON" "$ATTEMPT_LOG_JSON")
 
   python3 "$SCRIPTS_DIR/update_run_json.py" --append-task "$RUN_JSON" --task-json "$TASK_RECORD"
 

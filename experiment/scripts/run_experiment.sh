@@ -112,7 +112,6 @@ if [[ ! -f "$RUN_JSON" ]]; then
     --tool-version "$TOOL_VERSION" \
     --ollama-version "$OLLAMA_VER" \
     --template-hashes "$TEMPLATE_HASHES"
-  echo "Initialised $RUN_JSON"
 else
   echo "Resuming existing run: $RUN_JSON"
 fi
@@ -120,32 +119,32 @@ fi
 # ── State helper ─────────────────────────────────────────────────────────────
 write_state() {
   local status="$1" current_task="${2:-}" msg="${3:-}"
-  DONE_COUNT=$(python3 "$SCRIPTS_DIR/parse_tasks.py" "$RUN_DIR/TASKS.md" --list | \
-    xargs -I{} python3 "$SCRIPTS_DIR/parse_tasks.py" "$RUN_DIR/TASKS.md" --task {} --field status 2>/dev/null | \
-    grep -c "^DONE$" || echo "0")
-  FAILED_COUNT=$(python3 "$SCRIPTS_DIR/parse_tasks.py" "$RUN_DIR/TASKS.md" --list | \
-    xargs -I{} python3 "$SCRIPTS_DIR/parse_tasks.py" "$RUN_DIR/TASKS.md" --task {} --field status 2>/dev/null | \
-    grep -c "^FAILED$" || echo "0")
-  python3 -c "
-import json, os
+  # Count statuses entirely in Python to avoid grep -c + || echo "0" double-output bug
+  python3 - <<PYEOF
+import json, re, sys
 from pathlib import Path
 from datetime import datetime, timezone
+
+content = Path("$RUN_DIR/TASKS.md").read_text()
+done   = len(re.findall(r'\*\*Status:\*\*\s+DONE',   content))
+failed = len(re.findall(r'\*\*Status:\*\*\s+FAILED', content))
+
 data = {
-  'status': '$status',
-  'tool': '$TOOL',
-  'model_short': '$MODEL',
-  'model_ollama_id': '$MODEL_OLLAMA_ID',
-  'current_task': '$current_task',
-  'current_task_start': os.environ.get('TASK_START_TIME', ''),
-  'tasks_done': $DONE_COUNT,
-  'tasks_failed': $FAILED_COUNT,
-  'tasks_total': 20,
-  'last_updated': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-  'intervention_message': '$msg',
-  'pause_requested': Path('$PAUSE_FILE').exists(),
+  "status": "$status",
+  "tool": "$TOOL",
+  "model_short": "$MODEL",
+  "model_ollama_id": "$MODEL_OLLAMA_ID",
+  "current_task": "$current_task",
+  "current_task_start": "${TASK_START_TIME:-}",
+  "tasks_done": done,
+  "tasks_failed": failed,
+  "tasks_total": 20,
+  "last_updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+  "intervention_message": "$msg",
+  "pause_requested": Path("$PAUSE_FILE").exists(),
 }
-Path('$STATE_FILE').write_text(json.dumps(data, indent=2) + '\n')
-"
+Path("$STATE_FILE").write_text(json.dumps(data, indent=2) + "\n")
+PYEOF
 }
 
 # ── Get task IDs ────────────────────────────────────────────────────────────

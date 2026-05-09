@@ -10,7 +10,7 @@ OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.68.74:11434}"
 # Ensure JDK 17 and Android SDK are on PATH for this session
 export JAVA_HOME="${JAVA_HOME:-/usr/local/opt/openjdk@17}"
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
-export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+export PATH="/usr/local/opt/coreutils/libexec/gnubin:$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 TOOL="${1:?Usage: setup_run.sh <tool> <model_short_name>}"
 MODEL="${2:?}"

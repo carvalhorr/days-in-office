@@ -36,13 +36,12 @@ rm -f "$TMPOUT"
 
 # Determine passed: exit 0 and not timed out
 if [[ $EXIT_CODE -eq 0 ]]; then
-  PASSED="true"
+  PASSED="True"
 elif [[ $EXIT_CODE -eq 124 ]]; then
-  # timeout exit code
-  PASSED="false"
+  PASSED="False"
   OUTPUT="TIMEOUT after ${QA_TIMEOUT}s\n$OUTPUT"
 else
-  PASSED="false"
+  PASSED="False"
 fi
 
 # Emit JSON (using python for safe quoting)

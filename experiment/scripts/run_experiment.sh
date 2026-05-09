@@ -16,7 +16,7 @@ OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.68.74:11434}"
 # Ensure JDK 17 and Android SDK are set for Gradle builds
 export JAVA_HOME="${JAVA_HOME:-/usr/local/opt/openjdk@17}"
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
-export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+export PATH="/usr/local/opt/coreutils/libexec/gnubin:$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
 export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://192.168.68.74:11434/v1}"
 

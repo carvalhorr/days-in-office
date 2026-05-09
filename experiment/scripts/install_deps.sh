@@ -27,6 +27,16 @@ command -v docker &>/dev/null || fail "Docker not found. Install Docker Desktop 
 docker info &>/dev/null      || fail "Docker daemon not running. Start Docker Desktop."
 ok "Docker $(docker --version | awk '{print $3}' | tr -d ',')"
 
+# ── GNU coreutils (provides timeout) ────────────────────────
+header "GNU coreutils (timeout)"
+if [[ -f "/usr/local/opt/coreutils/libexec/gnubin/timeout" ]]; then
+  ok "coreutils already installed"
+else
+  info "Installing coreutils via Homebrew..."
+  brew install coreutils
+  ok "coreutils installed"
+fi
+
 # ── JDK 17 ──────────────────────────────────────────────────
 header "JDK 17"
 if /usr/local/opt/openjdk@17/bin/java -version &>/dev/null 2>&1; then

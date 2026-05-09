@@ -189,7 +189,7 @@ for TASK_ID in $TASK_IDS; do
   TASK_STATUS_FINAL="FAILED"
   ATTEMPTS=0
   FAILURE_REASONS=()
-  ATTEMPT_LOG=()
+  ATTEMPT_LOG_JSON="[]"
   QA_RESULTS="[]"
   COMMIT_HASH=""
 
@@ -245,7 +245,11 @@ for TASK_ID in $TASK_IDS; do
       git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
         git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — tool error (exit $TOOL_EXIT)"
       ATTEMPT_END_SECS=$(date +%s)
-      ATTEMPT_LOG+=("{\"attempt\":$ATTEMPT,\"start_time\":\"$ATTEMPT_START_TIME\",\"end_time\":\"$(date +%Y-%m-%dT%H:%M:%S)\",\"duration_seconds\":$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),\"outcome\":\"${FAILURE_REASONS[-1]}\"}")
+      ATTEMPT_LOG_JSON=$(python3 -c "
+import json, sys
+arr = json.loads(sys.argv[1])
+arr.append({'attempt':$ATTEMPT,'start_time':sys.argv[2],'end_time':sys.argv[3],'duration_seconds':$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),'outcome':sys.argv[4]})
+print(json.dumps(arr))" "$ATTEMPT_LOG_JSON" "$ATTEMPT_START_TIME" "$(date +%Y-%m-%dT%H:%M:%S)" "${FAILURE_REASONS[-1]}")
       continue
     fi
 
@@ -253,14 +257,18 @@ for TASK_ID in $TASK_IDS; do
     echo "  Running QA verification..."
     QA_COMMANDS=$(python3 "$SCRIPTS_DIR/parse_tasks.py" "$RUN_DIR/TASKS.md" --task "$TASK_ID" --field qa_commands)
     ALL_PASSED=1
-    QA_RESULTS_ARR=()
+    QA_RESULTS="[]"
     LAST_FAILURE_OUTPUT=""
 
     while IFS= read -r CMD; do
       [[ -z "$CMD" ]] && continue
       echo "    QA: $CMD"
       QA_JSON=$(bash "$SCRIPTS_DIR/run_qa.sh" "$RUN_DIR" "$CMD")
-      QA_RESULTS_ARR+=("$QA_JSON")
+      QA_RESULTS=$(echo "$QA_JSON" | python3 -c "
+import json, sys
+arr = json.loads(sys.argv[1])
+arr.append(json.load(sys.stdin))
+print(json.dumps(arr))" "$QA_RESULTS" 2>/dev/null || echo "$QA_RESULTS")
       PASSED=$(echo "$QA_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['passed'])")
       if [[ "$PASSED" != "True" ]]; then
         ALL_PASSED=0
@@ -272,9 +280,6 @@ for TASK_ID in $TASK_IDS; do
       fi
     done <<< "$QA_COMMANDS"
 
-    # Build QA results JSON array
-    QA_RESULTS="[$(IFS=','; echo "${QA_RESULTS_ARR[*]}")]"
-
     if [[ $ALL_PASSED -eq 1 ]]; then
       echo "  ✓ All QA checks passed on attempt $ATTEMPT"
       TASK_STATUS_FINAL="DONE"
@@ -284,7 +289,11 @@ for TASK_ID in $TASK_IDS; do
         git -C "$RUN_DIR" commit -q -m "feat: complete $TASK_ID — $TASK_TITLE"
       COMMIT_HASH=$(git -C "$RUN_DIR" rev-parse HEAD 2>/dev/null || echo "")
       ATTEMPT_END_SECS=$(date +%s)
-      ATTEMPT_LOG+=("{\"attempt\":$ATTEMPT,\"start_time\":\"$ATTEMPT_START_TIME\",\"end_time\":\"$(date +%Y-%m-%dT%H:%M:%S)\",\"duration_seconds\":$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),\"outcome\":\"DONE\"}")
+      ATTEMPT_LOG_JSON=$(python3 -c "
+import json, sys
+arr = json.loads(sys.argv[1])
+arr.append({'attempt':$ATTEMPT,'start_time':sys.argv[2],'end_time':sys.argv[3],'duration_seconds':$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),'outcome':'DONE'})
+print(json.dumps(arr))" "$ATTEMPT_LOG_JSON" "$ATTEMPT_START_TIME" "$(date +%Y-%m-%dT%H:%M:%S)")
       break
     else
       echo "  ✗ QA failed on attempt $ATTEMPT"
@@ -295,7 +304,11 @@ for TASK_ID in $TASK_IDS; do
       git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
         git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — QA failed"
       ATTEMPT_END_SECS=$(date +%s)
-      ATTEMPT_LOG+=("{\"attempt\":$ATTEMPT,\"start_time\":\"$ATTEMPT_START_TIME\",\"end_time\":\"$(date +%Y-%m-%dT%H:%M:%S)\",\"duration_seconds\":$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),\"outcome\":\"QA_FAIL\"}")
+      ATTEMPT_LOG_JSON=$(python3 -c "
+import json, sys
+arr = json.loads(sys.argv[1])
+arr.append({'attempt':$ATTEMPT,'start_time':sys.argv[2],'end_time':sys.argv[3],'duration_seconds':$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),'outcome':'QA_FAIL'})
+print(json.dumps(arr))" "$ATTEMPT_LOG_JSON" "$ATTEMPT_START_TIME" "$(date +%Y-%m-%dT%H:%M:%S)")
     fi
   done  # attempts
 
@@ -322,7 +335,6 @@ print(json.dumps(files))" || echo "[]")
 
   # Build task record JSON
   FAILURE_REASONS_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1:]))" "${FAILURE_REASONS[@]+"${FAILURE_REASONS[@]}"}")
-  ATTEMPT_LOG_JSON="[$(IFS=','; echo "${ATTEMPT_LOG[*]}")]"
   TASK_RECORD=$(python3 -c "
 import json, sys
 metrics = json.loads(sys.argv[1])

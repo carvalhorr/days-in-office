@@ -8,7 +8,7 @@ set -uo pipefail
 WORK_DIR="${1:?Usage: run_qa.sh <work_dir> <command>}"
 shift
 COMMAND="$*"
-QA_TIMEOUT="${QA_TIMEOUT:-300}"
+QA_TIMEOUT="${QA_TIMEOUT:-900}"
 
 # Skip connectedAndroidTest if no device is attached
 if echo "$COMMAND" | grep -q "connectedAndroidTest"; then

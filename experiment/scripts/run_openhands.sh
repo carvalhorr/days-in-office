@@ -10,7 +10,7 @@ set -uo pipefail
 PROMPT_FILE="${1:?Usage: run_openhands.sh <prompt_file> <work_dir> <model_ollama_id>}"
 WORK_DIR="${2:?}"
 MODEL_ID="${3:?}"
-TOOL_TIMEOUT="${TOOL_TIMEOUT:-1800}"
+TOOL_TIMEOUT="${TOOL_TIMEOUT:-3600}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.68.74:11434}"
 OPENHANDS_IMAGE="${OPENHANDS_IMAGE:-ghcr.io/all-hands-ai/openhands:latest}"
 RUNTIME_IMAGE="${OPENHANDS_RUNTIME_IMAGE:-ghcr.io/all-hands-ai/runtime:latest}"

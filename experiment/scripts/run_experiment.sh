@@ -20,7 +20,7 @@ export PATH="/usr/local/opt/coreutils/libexec/gnubin:$JAVA_HOME/bin:$ANDROID_HOM
 export OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
 export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://192.168.68.74:11434/v1}"
 # Timeouts — raise defaults for slow local GPUs; override via env var before running
-export TOOL_TIMEOUT="${TOOL_TIMEOUT:-1800}"   # 30 min per tool invocation
+export TOOL_TIMEOUT="${TOOL_TIMEOUT:-3600}"   # 1 hour per tool invocation (slow local GPU)
 export QA_TIMEOUT="${QA_TIMEOUT:-900}"        # 15 min per QA command (covers cold Gradle builds)
 
 TOOL="${1:?Usage: run_experiment.sh <tool> <model_short_name> <model_ollama_id>}"

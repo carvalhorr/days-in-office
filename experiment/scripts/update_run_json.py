@@ -20,12 +20,12 @@ import json
 import os
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    return datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
 
 
 def atomic_write(path: Path, data: dict):
@@ -105,8 +105,8 @@ def cmd_finalise(args):
 
     # Parse start/end for duration
     try:
-        start = datetime.strptime(data['run_start_time'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
-        end = datetime.strptime(end_time, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+        start = datetime.strptime(data['run_start_time'], '%Y-%m-%dT%H:%M:%S')
+        end = datetime.strptime(end_time, '%Y-%m-%dT%H:%M:%S')
         data['total_duration_seconds'] = int((end - start).total_seconds())
     except Exception:
         pass

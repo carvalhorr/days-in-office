@@ -19,9 +19,9 @@ export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 export PATH="/usr/local/opt/coreutils/libexec/gnubin:$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
 export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://192.168.68.74:11434/v1}"
-# Timeouts — raise defaults for slow local GPUs; override via env var before running
-export TOOL_TIMEOUT="${TOOL_TIMEOUT:-3600}"   # 1 hour per tool invocation (slow local GPU)
-export QA_TIMEOUT="${QA_TIMEOUT:-900}"        # 15 min per QA command (covers cold Gradle builds)
+# Timeouts — calibrated for RTX 3090 Ti at ~5-10 tok/s; override via env var before running
+export TOOL_TIMEOUT="${TOOL_TIMEOUT:-7200}"   # 2h per tool invocation
+export QA_TIMEOUT="${QA_TIMEOUT:-1800}"       # 30 min per QA command (covers cold Gradle builds)
 
 TOOL="${1:?Usage: run_experiment.sh <tool> <model_short_name> <model_ollama_id>}"
 MODEL="${2:?}"
@@ -29,9 +29,10 @@ MODEL_OLLAMA_ID="${3:?}"
 
 # ── Paths ───────────────────────────────────────────────────────────────────
 RUN_DIR="$ROOT_DIR/runs/$TOOL/$MODEL"
-RESULTS_DIR="$ROOT_DIR/experiment/results/$TOOL/$MODEL"
+RESULTS_DIR="$RUN_DIR/experiment"
 RUN_JSON="$RESULTS_DIR/run.json"
 RUN_LOG="$RESULTS_DIR/run.log"
+BRANCH="run/$TOOL/$MODEL"
 LOCK_FILE="$ROOT_DIR/experiment/.lock"
 PAUSE_FILE="$ROOT_DIR/experiment/PAUSE"
 STATE_FILE="$ROOT_DIR/experiment/run_state.json"
@@ -41,7 +42,6 @@ TASK_PROMPT="$TEMPLATES_DIR/task_prompt.txt"
 RETRY_PROMPT="$TEMPLATES_DIR/retry_prompt.txt"
 
 MAX_ATTEMPTS=3
-TOOL_TIMEOUT="${TOOL_TIMEOUT:-600}"
 LINT_MILESTONES="TASK-001 TASK-005 TASK-010 TASK-015 TASK-020"
 
 # ── Validate setup ──────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ acquire_lock() {
     fi
   fi
   printf "tool=%s\nmodel=%s\npid=%s\nstarted=%s\n" \
-    "$TOOL" "$MODEL" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_FILE"
+    "$TOOL" "$MODEL" "$$" "$(date +%Y-%m-%dT%H:%M:%S)" > "$LOCK_FILE"
 }
 
 release_lock() {
@@ -80,7 +80,7 @@ exec > >(tee -a "$RUN_LOG") 2>&1
 echo "════════════════════════════════════════════════════════"
 echo "  run_experiment.sh  —  $TOOL × $MODEL"
 echo "  Model: $MODEL_OLLAMA_ID"
-echo "  Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "  Started: $(date +%Y-%m-%dT%H:%M:%S)"
 echo "════════════════════════════════════════════════════════"
 
 # ── Tool/version capture ────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ write_state() {
   python3 - <<PYEOF
 import json, re, sys
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 
 content = Path("$RUN_DIR/TASKS.md").read_text()
 done   = len(re.findall(r'\*\*Status:\*\*\s+DONE',   content))
@@ -142,7 +142,7 @@ data = {
   "tasks_done": done,
   "tasks_failed": failed,
   "tasks_total": 20,
-  "last_updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+  "last_updated": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
   "intervention_message": "$msg",
   "pause_requested": Path("$PAUSE_FILE").exists(),
 }
@@ -181,7 +181,7 @@ for TASK_ID in $TASK_IDS; do
   # Mark IN_PROGRESS
   python3 "$SCRIPTS_DIR/update_tasks_status.py" "$RUN_DIR/TASKS.md" "$TASK_ID" "IN_PROGRESS"
   export TASK_START_TIME
-  TASK_START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  TASK_START_TIME=$(date +%Y-%m-%dT%H:%M:%S)
   write_state "running" "$TASK_ID" ""
 
   TASK_START_SECS=$(date +%s)
@@ -217,6 +217,10 @@ for TASK_ID in $TASK_IDS; do
         --var "FAILURE_OUTPUT=$LAST_FAILURE_OUTPUT"
     fi
 
+    # Save prompt for post-mortem review
+    mkdir -p "$RESULTS_DIR/$TASK_ID"
+    cp "$PROMPT_FILE" "$RESULTS_DIR/$TASK_ID/attempt${ATTEMPT}_prompt.txt"
+
     # Invoke tool adapter
     echo "  Invoking $TOOL with model $MODEL_OLLAMA_ID ..."
     TOOL_EXIT=0
@@ -227,11 +231,16 @@ for TASK_ID in $TASK_IDS; do
       if [[ $TOOL_EXIT -eq 124 ]]; then
         echo "  TIMEOUT after ${TOOL_TIMEOUT}s"
         FAILURE_REASONS+=("TIMEOUT")
+        LAST_FAILURE_OUTPUT="Tool timed out after ${TOOL_TIMEOUT}s"
       else
         echo "  TOOL_ERROR (exit $TOOL_EXIT)"
         FAILURE_REASONS+=("TOOL_ERROR")
+        LAST_FAILURE_OUTPUT="Tool exited with code $TOOL_EXIT"
       fi
-      LAST_FAILURE_OUTPUT="Tool exited with code $TOOL_EXIT"
+      echo "$LAST_FAILURE_OUTPUT" > "$RESULTS_DIR/$TASK_ID/attempt${ATTEMPT}_failure.txt"
+      git -C "$RUN_DIR" add -A 2>/dev/null || true
+      git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
+        git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — tool error (exit $TOOL_EXIT)"
       continue
     fi
 
@@ -264,15 +273,20 @@ for TASK_ID in $TASK_IDS; do
     if [[ $ALL_PASSED -eq 1 ]]; then
       echo "  ✓ All QA checks passed on attempt $ATTEMPT"
       TASK_STATUS_FINAL="DONE"
-      # Capture commit hash
-      COMMIT_HASH=$(git -C "$RUN_DIR" rev-parse HEAD 2>/dev/null || echo "")
       python3 "$SCRIPTS_DIR/update_tasks_status.py" "$RUN_DIR/TASKS.md" "$TASK_ID" "DONE"
+      git -C "$RUN_DIR" add -A 2>/dev/null || true
+      git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
+        git -C "$RUN_DIR" commit -q -m "feat: complete $TASK_ID — $TASK_TITLE"
+      COMMIT_HASH=$(git -C "$RUN_DIR" rev-parse HEAD 2>/dev/null || echo "")
       break
     else
       echo "  ✗ QA failed on attempt $ATTEMPT"
       FAILURE_REASONS+=("QA_FAIL")
-      # Truncate failure context to 4000 chars
       LAST_FAILURE_OUTPUT=$(echo -e "$LAST_FAILURE_OUTPUT" | tail -c 4000)
+      printf '%s' "$LAST_FAILURE_OUTPUT" > "$RESULTS_DIR/$TASK_ID/attempt${ATTEMPT}_failure.txt"
+      git -C "$RUN_DIR" add -A 2>/dev/null || true
+      git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
+        git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — QA failed"
     fi
   done  # attempts
 
@@ -309,7 +323,7 @@ record = {
   'task_id': '$TASK_ID',
   'status': '$TASK_STATUS_FINAL',
   'start_time': '$TASK_START_TIME',
-  'end_time': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+  'end_time': '$(date +%Y-%m-%dT%H:%M:%S)',
   'duration_seconds': $TASK_DURATION,
   'attempts': $ATTEMPTS,
   'failure_reasons': reasons,
@@ -326,6 +340,12 @@ print(json.dumps(record))
 
   python3 "$SCRIPTS_DIR/update_run_json.py" --append-task "$RUN_JSON" --task-json "$TASK_RECORD"
 
+  # Commit results artifacts to run repo and sync branch to main repo
+  git -C "$RUN_DIR" add -A 2>/dev/null || true
+  git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
+    git -C "$RUN_DIR" commit -q -m "chore: results $TASK_ID — $TASK_STATUS_FINAL ($ATTEMPTS attempt(s))"
+  git -C "$ROOT_DIR" fetch "$RUN_DIR" HEAD:"$BRANCH" 2>/dev/null || true
+
   STATUS_ICON="✓"
   [[ "$TASK_STATUS_FINAL" == "FAILED" ]] && STATUS_ICON="✗"
   echo "$STATUS_ICON $TASK_ID: $TASK_STATUS_FINAL (${TASK_DURATION}s, $ATTEMPTS attempt(s))"
@@ -336,6 +356,11 @@ done  # tasks
 # ── Finalise ─────────────────────────────────────────────────────────────────
 python3 "$SCRIPTS_DIR/update_run_json.py" --finalise "$RUN_JSON"
 write_state "complete" "" ""
+
+git -C "$RUN_DIR" add -A 2>/dev/null || true
+git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
+  git -C "$RUN_DIR" commit -q -m "chore: finalise run $TOOL/$MODEL"
+git -C "$ROOT_DIR" fetch "$RUN_DIR" HEAD:"$BRANCH" 2>/dev/null || true
 
 echo ""
 echo "════════════════════════════════════════════════════════"

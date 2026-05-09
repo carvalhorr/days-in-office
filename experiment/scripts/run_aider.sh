@@ -30,9 +30,11 @@ trap "rm -f '$SETTINGS_FILE'" EXIT
 
 cd "$WORK_DIR"
 
+# aider uses OLLAMA_API_BASE (not --openai-api-base) for native Ollama models
+export OLLAMA_API_BASE="$OLLAMA_HOST"
+
 exec timeout "$TOOL_TIMEOUT" aider \
   --model "ollama/$MODEL_ID" \
-  --openai-api-base "$OLLAMA_HOST" \
   --no-auto-commits \
   --yes-always \
   --no-suggest-shell-commands \

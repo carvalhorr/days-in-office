@@ -35,6 +35,7 @@ export OLLAMA_API_BASE="$OLLAMA_HOST"
 
 exec timeout "$TOOL_TIMEOUT" aider \
   --model "ollama/$MODEL_ID" \
+  --timeout "$TOOL_TIMEOUT" \
   --no-auto-commits \
   --yes-always \
   --no-suggest-shell-commands \

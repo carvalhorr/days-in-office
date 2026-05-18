@@ -131,6 +131,27 @@ def cmd_finalise(args):
     durations = [t.get('duration_seconds') for t in tasks if t.get('duration_seconds') is not None]
     data['average_task_duration_seconds'] = round(sum(durations) / len(durations), 1) if durations else None
 
+    # Sum cloud usage telemetry (cost/tokens) across all attempts of all tasks.
+    # Only present when the tool adapter writes attempt usage records (e.g. Claude).
+    def _sum(field):
+        total = 0
+        seen = False
+        for t in tasks:
+            for a in (t.get('attempt_log') or []):
+                v = (a.get('usage') or {}).get(field)
+                if v is not None:
+                    total += v
+                    seen = True
+        return total if seen else None
+
+    total_cost = _sum('cost_usd')
+    if total_cost is not None:
+        data['total_cost_usd'] = round(total_cost, 4)
+        data['total_input_tokens'] = _sum('input_tokens')
+        data['total_output_tokens'] = _sum('output_tokens')
+        data['total_cache_read_tokens'] = _sum('cache_read_tokens')
+        data['total_cache_creation_tokens'] = _sum('cache_creation_tokens')
+
     # Phase completion
     phase_map = {
         "phase_1_foundation":            ["TASK-001", "TASK-002", "TASK-003", "TASK-004"],

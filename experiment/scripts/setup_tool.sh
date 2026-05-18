@@ -65,8 +65,19 @@ case "$TOOL" in
     echo "goose: READY"
     ;;
 
+  claude)
+    echo "Checking Claude Code..."
+    if ! command -v claude &>/dev/null; then
+      echo "ERROR: claude not found in PATH. Install Claude Code from https://claude.ai/code"
+      exit 1
+    fi
+    CLAUDE_VER=$(claude --version 2>&1 | head -1)
+    echo "  $CLAUDE_VER"
+    echo "claude: READY (cloud tool — no Ollama needed)"
+    ;;
+
   *)
-    echo "ERROR: unknown tool '$TOOL'. Valid: aider, openhands, goose"
+    echo "ERROR: unknown tool '$TOOL'. Valid: aider, openhands, goose, claude"
     exit 1
     ;;
 esac

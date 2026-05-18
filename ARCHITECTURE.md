@@ -440,16 +440,25 @@ SETTINGS        /settings
 
 ## 11. Testing Strategy
 
-### Unit Tests
-- Location: `src/test/`
-- Framework: JUnit 5 + MockK
-- Required for: all use cases, all repositories, all detectors, all ViewModels
-- Flow testing: Turbine
+The testing approach is layered for fast feedback in the per-task development loop, with on-device validation reserved for the release smoke suite.
 
-### Instrumented Tests
-- Location: `src/androidTest/`
-- Framework: Compose UI Test + Room in-memory database
-- Required for: Room DAOs, Compose screens (key interactions)
+### Unit Tests (JVM, no emulator)
+- Location: `src/test/`
+- Framework: JUnit 5 + MockK, Turbine for Flow assertions
+- Runs under `./gradlew testDebugUnitTest`
+- Required for: all use cases, all repositories, all detectors, all ViewModels
+- **Room DAO tests** also live here, running on the JVM under **Robolectric** with `Room.inMemoryDatabaseBuilder` and `ApplicationProvider.getApplicationContext()`. Robolectric uses JUnit 4, run under the JUnit 5 Platform via `junit-vintage-engine`.
+
+### Compose UI Tests (JVM where possible, instrumented when required)
+- Compose snapshot/interaction tests that don't depend on real system services should use Compose UI Test under `src/test/` with Robolectric where feasible.
+- Tests that genuinely need a device (real input dispatch, accessibility) live in `src/androidTest/` but are exercised only by the release smoke suite — not per-task QA.
+
+### Release Smoke Suite (instrumented, emulator-backed)
+- Location: `src/androidTest/kotlin/com/carvalhorr/daysInOffice/smoke/`
+- Framework: `androidx.test.runner.AndroidJUnitRunner` + `AndroidJUnit4`
+- Runs under `experiment/scripts/with_emulator.sh ./gradlew connectedAndroidTest -P…package=com.carvalhorr.daysInOffice.smoke`
+- Covers the system-service-dependent happy paths: real on-device SQLite, manual office-day recording, compliance calculation, WorkManager scheduling.
+- Defined in TASKS.md as TASK-021. This is the release gate.
 
 ### Test Naming Convention
 ```
@@ -458,8 +467,8 @@ fun `given [state] when [action] then [expected result]`()
 
 ### Mocking Strategy
 - Repository interfaces are mocked with MockK in ViewModel tests
-- Room DAOs tested with in-memory Room database (no mocking)
-- Android system services (WifiManager, LocationManager) mocked with MockK
+- Room DAOs are tested with a real (in-memory) Room database, never mocked
+- Android system services (WifiManager, LocationManager) mocked with MockK in unit tests; exercised for real in the smoke suite
 
 ---
 

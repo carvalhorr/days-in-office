@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Days in Office — Live Viewer</title>
+    <style>
+        :root {
+            --bg-base: #0f172a;
+            --bg-panel: rgba(30, 41, 59, 0.7);
+            --bg-card: rgba(51, 65, 85, 0.5);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --success: #22c55e;
+            --error: #ef4444;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg-base);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Glassmorphism utilities */
+        .glass {
+            background: var(--bg-panel);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+        }
+
+        header {
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            z-index: 10;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .status-badge.running { color: var(--accent); border: 1px solid var(--accent); }
+        .status-badge.complete { color: var(--success); border: 1px solid var(--success); }
+        .status-badge.paused { color: #f59e0b; border: 1px solid #f59e0b; }
+
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 300px;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .task-item {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .task-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .task-item.active {
+            background: rgba(56, 189, 248, 0.1);
+            border-left: 3px solid var(--accent);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+        
+        .task-id { font-weight: 600; }
+        .task-status { font-size: 0.75rem; text-transform: uppercase; padding: 0.1rem 0.4rem; border-radius: 4px;}
+        .status-DONE { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+        .status-FAILED { background: rgba(239, 68, 68, 0.2); color: var(--error); }
+        .status-IN_PROGRESS { background: rgba(56, 189, 248, 0.2); color: var(--accent); }
+        .status-NOT_STARTED { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+
+        .content-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        .attempt-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+
+        .attempt-header {
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .split-view {
+            display: flex;
+            height: 400px;
+        }
+
+        .split-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .split-pane:first-child {
+            border-right: 1px solid var(--border);
+        }
+
+        .pane-title {
+            padding: 0.5rem 1rem;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            background: rgba(0,0,0,0.1);
+            border-bottom: 1px solid var(--border);
+        }
+
+        pre {
+            margin: 0;
+            padding: 1rem;
+            overflow: auto;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.85rem;
+            color: #e2e8f0;
+            white-space: pre-wrap;
+            flex: 1;
+        }
+
+        .log-panel {
+            height: 250px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .log-header {
+            padding: 0.5rem 1rem;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #log-content {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            background: #000;
+            color: #a8b2d1;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.8rem;
+            margin: 0;
+        }
+        
+        .files-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--accent);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+
+    </style>
+</head>
+<body>
+
+    <header class="glass">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <h1>Live Benchmarks Viewer</h1>
+            <select id="run-selector" class="glass" style="color: white; background: transparent; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.875rem; outline: none; border: 1px solid rgba(255,255,255,0.2);">
+                <option value="" style="color: black;">🟢 Live (Active Run)</option>
+            </select>
+        </div>
+            <div id="run-info" style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.25rem;">
+                Waiting for run data...
+            </div>
+        </div>
+        <div id="run-status" class="status-badge">Unknown</div>
+    </header>
+
+    <div class="main-content">
+        <div class="sidebar glass" id="task-list">
+            <!-- Tasks injected here -->
+        </div>
+
+        <div class="content-area" id="main-area">
+            <h2 id="selected-task-title" style="margin-top:0">Select a task</h2>
+            <div id="selected-task-meta" style="color: var(--text-muted); margin-bottom: 2rem; font-size: 0.9rem;"></div>
+            
+            <div id="attempts-container">
+                <!-- Attempts injected here -->
+            </div>
+        </div>
+    </div>
+
+    <div class="log-panel glass">
+        <div class="log-header">
+            <span>Terminal Output (run.log)</span>
+            <label style="font-size: 0.75rem;"><input type="checkbox" id="auto-scroll" checked> Auto-scroll</label>
+        </div>
+        <pre id="log-content"></pre>
+    </div>
+
+    <script>
+        let currentState = null;
+        let selectedTaskId = null;
+        let fileCache = {};
+        let currentRunQuery = "";
+
+        async function fetchRuns() {
+            try {
+                const res = await fetch('/api/runs');
+                const runs = await res.json();
+                const selector = document.getElementById('run-selector');
+                runs.forEach(r => {
+                    selector.innerHTML += `<option value="?tool=${r.tool}&model=${r.model}" style="color: black">${r.tool} × ${r.model}</option>`;
+                });
+                selector.onchange = () => {
+                    currentRunQuery = selector.value;
+                    selectedTaskId = null; // reset selection
+                    document.getElementById('task-list').innerHTML = '';
+                    document.getElementById('attempts-container').innerHTML = '';
+                    document.getElementById('selected-task-meta').innerHTML = '';
+                    document.getElementById('selected-task-title').textContent = 'Select a task';
+                    fetchState();
+                    fetchLog();
+                };
+            } catch (e) {
+                console.error("Failed to fetch runs", e);
+            }
+        }
+
+        async function fetchState() {
+            try {
+                const res = await fetch('/api/state' + currentRunQuery);
+                const data = await res.json();
+                renderState(data);
+            } catch (e) {
+                console.error("Failed to fetch state", e);
+            }
+        }
+
+        async function fetchLog() {
+            try {
+                const res = await fetch('/api/log' + currentRunQuery);
+                const text = await res.text();
+                const logEl = document.getElementById('log-content');
+                const autoScroll = document.getElementById('auto-scroll').checked;
+                
+                logEl.textContent = text;
+                if (autoScroll) {
+                    logEl.scrollTop = logEl.scrollHeight;
+                }
+            } catch (e) {
+                console.error("Failed to fetch log", e);
+            }
+        }
+
+        async function fetchFile(task, attempt, type) {
+            const key = `${task}-${attempt}-${type}${currentRunQuery}`;
+            if (fileCache[key]) return fileCache[key];
+            
+            try {
+                const suffix = currentRunQuery ? currentRunQuery.replace("?", "&") : "";
+                const res = await fetch(`/api/file?task=${task}&attempt=${attempt}&type=${type}${suffix}`);
+                const text = await res.text();
+                fileCache[key] = text;
+                return text;
+            } catch (e) {
+                return "Error fetching file.";
+            }
+        }
+
+        function renderState(data) {
+            if (!data.state) return;
+            currentState = data;
+
+            // Header info
+            document.getElementById('run-info').textContent = 
+                `${data.state.tool} × ${data.state.model_short} (${data.state.tasks_done}/${data.state.tasks_total} completed)`;
+            
+            const badge = document.getElementById('run-status');
+            badge.textContent = data.state.status;
+            badge.className = `status-badge ${data.state.status}`;
+
+            // Task List — use full ordered list from TASKS.md, enriched with run.json details
+            const taskList = data.all_tasks || [];
+            if (taskList.length > 0) {
+                renderTaskList(taskList, data.state.current_task);
+                if (selectedTaskId) {
+                    renderTaskDetail(taskList.find(t => t.task_id === selectedTaskId));
+                }
+            }
+        }
+
+        function renderTaskList(tasks, currentTask) {
+            const listEl = document.getElementById('task-list');
+            listEl.innerHTML = '';
+
+            tasks.forEach(task => {
+                const el = document.createElement('div');
+                el.className = `task-item ${task.task_id === selectedTaskId ? 'active' : ''}`;
+                el.onclick = () => {
+                    selectedTaskId = task.task_id;
+                    renderTaskList(tasks, currentTask); // update active class
+                    renderTaskDetail(task);
+                };
+
+                let subtitle = '';
+                if (task.status === 'DONE' || task.status === 'FAILED') {
+                    subtitle = `${task.duration_seconds}s &nbsp;•&nbsp; ${task.attempts || 1} attempt(s)`;
+                } else if (task.status === 'IN_PROGRESS') {
+                    subtitle = 'Running...';
+                } else {
+                    subtitle = 'Queued';
+                }
+                el.innerHTML = `
+                    <div class="task-header">
+                        <span class="task-id">${task.task_id}</span>
+                        <span class="task-status status-${task.status}">${task.status}</span>
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted)">${subtitle}</div>
+                `;
+                listEl.appendChild(el);
+            });
+        }
+
+        async function renderTaskDetail(task) {
+            if (!task) return;
+            document.getElementById('selected-task-title').textContent = task.task_id;
+            
+            let filesHtml = '<em>No files created/modified</em>';
+            if (task.files_created && task.files_created.length > 0) {
+                filesHtml = `<ul class="files-list">${task.files_created.map(f => `<li>${f}</li>`).join('')}</ul>`;
+            }
+
+            document.getElementById('selected-task-meta').innerHTML = `
+                Status: <strong class="status-${task.status}">${task.status}</strong> &nbsp;|&nbsp; 
+                Duration: ${task.duration_seconds}s &nbsp;|&nbsp; 
+                Tests: ${task.unit_test_pass_count || 0} passed, ${task.unit_test_fail_count || 0} failed<br><br>
+                <strong>Files Modified:</strong>
+                ${filesHtml}
+            `;
+
+            const container = document.getElementById('attempts-container');
+            container.innerHTML = '';
+
+            let attemptLog = task.attempt_log;
+            
+            // If the task is running, attempt_log is not in run.json yet, so we probe the files
+            if (!attemptLog && task.status === 'IN_PROGRESS') {
+                attemptLog = [];
+                for (let i = 1; i <= 10; i++) {
+                    const promptText = await fetchFile(task.task_id, i, 'prompt');
+                    if (promptText === "File not found." || promptText.startsWith("Error")) {
+                        break;
+                    }
+                    const failureText = await fetchFile(task.task_id, i, 'failure');
+                    let outcome = "IN_PROGRESS";
+                    if (failureText !== "File not found." && !failureText.startsWith("Error")) {
+                        outcome = "QA_FAIL"; // Has a failure file
+                    }
+                    attemptLog.push({
+                        attempt: i,
+                        outcome: outcome,
+                        duration_seconds: '?'
+                    });
+                }
+            }
+
+            if (!attemptLog || attemptLog.length === 0) {
+                container.innerHTML = '<em>No attempts recorded yet.</em>';
+                return;
+            }
+
+            for (const att of attemptLog) {
+                const card = document.createElement('div');
+                card.className = 'attempt-card glass';
+                
+                // Fetch prompt and failure
+                const promptText = await fetchFile(task.task_id, att.attempt, 'prompt');
+                let resultText = "QA Verification Passed / Running.";
+                if (att.outcome === 'QA_FAIL' || att.outcome === 'TIMEOUT' || att.outcome === 'TOOL_ERROR') {
+                    resultText = await fetchFile(task.task_id, att.attempt, 'failure');
+                }
+
+                card.innerHTML = `
+                    <div class="attempt-header">
+                        <strong>Attempt ${att.attempt}</strong>
+                        <span>Outcome: <span style="color: ${att.outcome === 'DONE' ? 'var(--success)' : 'var(--error)'}">${att.outcome}</span> (${att.duration_seconds}s)</span>
+                    </div>
+                    <div class="split-view">
+                        <div class="split-pane">
+                            <div class="pane-title">Prompt Issued</div>
+                            <pre>${escapeHtml(promptText)}</pre>
+                        </div>
+                        <div class="split-pane">
+                            <div class="pane-title">Result / Error</div>
+                            <pre>${escapeHtml(resultText)}</pre>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            }
+        }
+
+        function escapeHtml(unsafe) {
+            return (unsafe || '').toString()
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
+        // Boot and poll
+        fetchRuns();
+        fetchState();
+        fetchLog();
+        setInterval(fetchState, 2000);
+        setInterval(fetchLog, 1500);
+    </script>
+</body>
+</html>

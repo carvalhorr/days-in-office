@@ -23,7 +23,7 @@
 ---
 
 ### TASK-001: Android Project Setup
-**Status:** DONE
+**Status:** NOT_STARTED
 **Dependencies:** none
 **Complexity:** Medium
 
@@ -31,34 +31,26 @@
 Creates the Android project skeleton with all dependencies configured. Every subsequent task builds on this foundation.
 
 #### Scope — Files to Create
-- `build.gradle.kts` (project-level)
-- `app/build.gradle.kts`
-- `gradle/libs.versions.toml` (version catalog)
 - `app/src/main/AndroidManifest.xml`
 - `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/DaysInOfficeApp.kt`
 - `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/MainActivity.kt`
 - `app/src/main/res/values/themes.xml`
 - `app/src/main/res/values/colors.xml`
 
+> **Note:** `settings.gradle.kts`, `build.gradle.kts`, `app/build.gradle.kts`, and `gradle/libs.versions.toml` are all pre-seeded. Do NOT modify them — they are correct as-is.
+
 #### Implementation Details
-1. Use `com.carvalhorr.daysInOffice` as the application ID.
-2. Set `minSdk = 28`, `targetSdk = 35`, `compileSdk = 35`.
-3. Configure `libs.versions.toml` with all versions from `ARCHITECTURE.md` Section 2.
-4. Enable Kotlin 2.0 compose compiler plugin (`org.jetbrains.kotlin.plugin.compose`).
-5. Enable `kotlinOptions { jvmTarget = "17" }`.
-6. Add all dependencies from ARCHITECTURE.md Section 2.
-7. Add all permissions from ARCHITECTURE.md Section 13 to `AndroidManifest.xml`.
-8. `DaysInOfficeApp` must be annotated `@HiltAndroidApp`.
-9. `MainActivity` must be annotated `@AndroidEntryPoint` and set `enableEdgeToEdge()`.
-10. Theme: Material 3, dynamic color enabled, fallback primary color `#1565C0` (Blue 700).
+1. Add all permissions from ARCHITECTURE.md Section 13 to `AndroidManifest.xml`.
+2. `DaysInOfficeApp` must extend `Application` and be annotated `@HiltAndroidApp`.
+3. `MainActivity` must be annotated `@AndroidEntryPoint` and call `enableEdgeToEdge()`.
+4. Theme: Material 3, dynamic color enabled, fallback primary color `#1565C0` (Blue 700).
 
 #### Acceptance Criteria
 - [x] `./gradlew assembleDebug` completes with no errors.
-- [x] `./gradlew testDebugUnitTest` runs with 0 tests (no tests yet) and exits successfully.
+- [x] `./gradlew testDebugUnitTest` runs and exits successfully.
 - [x] `DaysInOfficeApp` extends `Application`, is annotated `@HiltAndroidApp`.
 - [x] `MainActivity` is annotated `@AndroidEntryPoint`.
 - [x] All permissions listed in ARCHITECTURE.md Section 13 are present in `AndroidManifest.xml`.
-- [x] Version catalog `libs.versions.toml` contains entries for all libraries in ARCHITECTURE.md Section 2.
 
 #### QA Verification Steps
 ```bash
@@ -145,8 +137,8 @@ Sets up the local database. All app data is persisted here. The schema must matc
 - `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/db/converter/TypeConverters.kt`
 - `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/db/dao/DayRecordDao.kt`
 - `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/db/dao/HolidayDao.kt`
-- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/core/data/db/DayRecordDaoTest.kt`
-- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/core/data/db/HolidayDaoTest.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/data/db/DayRecordDaoTest.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/data/db/HolidayDaoTest.kt`
 
 #### Implementation Details
 1. Entities: match schema in ARCHITECTURE.md Section 4.1 exactly.
@@ -158,7 +150,13 @@ Sets up the local database. All app data is persisted here. The schema must matc
    - `delete(date)` — deletes by primary key
 4. `HolidayDao` methods match ARCHITECTURE.md Section 4.2.
 5. `AppDatabase`: version 1, `exportSchema = true`, schema exported to `app/schemas/`.
-6. Dao tests use **in-memory Room database** (`Room.inMemoryDatabaseBuilder`). No mocking of Room.
+6. Dao tests run on the JVM under **Robolectric** with an **in-memory Room database** (`Room.inMemoryDatabaseBuilder`). No mocking of Room. Test classes are annotated:
+   ```kotlin
+   @RunWith(RobolectricTestRunner::class)
+   @Config(sdk = [34])
+   class DayRecordDaoTest { ... }
+   ```
+   Use `androidx.test.core.app.ApplicationProvider.getApplicationContext()` for the database builder context. Tests live in `src/test/` (not `src/androidTest/`) so they run under `testDebugUnitTest` without an emulator.
 
 #### Acceptance Criteria
 - [ ] `./gradlew assembleDebug` succeeds (schema exported to `app/schemas/`).
@@ -176,7 +174,7 @@ Sets up the local database. All app data is persisted here. The schema must matc
 
 #### QA Verification Steps
 ```bash
-./gradlew connectedAndroidTest --tests "com.carvalhorr.daysInOffice.core.data.db.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.data.db.*"
 ```
 
 ---
@@ -224,13 +222,13 @@ Implements the data layer repositories that bridge the domain layer to Room and 
   - `given no saved config when getMandateConfig then returns default config`
   - `given saved config when getMandateConfig then returns saved config`
   - `given config when saveMandateConfig then preferences updated`
-- [ ] All Hilt modules compile — `./gradlew kaptDebugKotlin` passes.
+- [ ] All Hilt modules compile — `./gradlew kspDebugKotlin` passes.
 - [ ] No direct DAO or DataStore references exist outside the `data` package.
 
 #### QA Verification Steps
 ```bash
 ./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.data.repository.*"
-./gradlew kaptDebugKotlin
+./gradlew kspDebugKotlin
 ```
 
 ---
@@ -559,3 +557,59 @@ The orchestrator coordinates all detection methods. The WorkManager worker sched
 - `// ...` (rest of the logic)
 
 #### ... (rest of the file)
+
+---
+
+## Phase 5: Release Validation
+
+### TASK-021: Release Smoke Test Suite
+**Status:** NOT_STARTED
+**Dependencies:** TASK-010 (and all prior implementation tasks)
+**Complexity:** Medium
+
+#### Context
+Per-task QA in this experiment runs on the JVM (unit tests + Robolectric) — fast and deterministic, but does not exercise the real Android runtime. This task adds a small **release smoke suite** of instrumented tests, executed on an emulator booted automatically by `experiment/scripts/with_emulator.sh`. It is the single release gate that proves the app actually works end-to-end on-device before shipping.
+
+The smoke suite is intentionally narrow: a few happy paths through the system-service-dependent code (WorkManager, Room on-device, manual office-day recording, compliance recalculation). It is **not** a full UI suite — Compose UI behaviour is covered by Compose UI Test in earlier tasks.
+
+#### Scope — Files to Create
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/smoke/DatabaseSmokeTest.kt`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/smoke/ManualDetectionSmokeTest.kt`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/smoke/ComplianceSmokeTest.kt`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/smoke/WorkerSchedulingSmokeTest.kt`
+
+#### Implementation Details
+1. All four tests run under `androidx.test.runner.AndroidJUnitRunner` with `@RunWith(AndroidJUnit4::class)`. Test package is `com.carvalhorr.daysInOffice.smoke`.
+2. `DatabaseSmokeTest`:
+   - Builds `AppDatabase` against the **real on-device SQLite** (`Room.databaseBuilder(ApplicationProvider.getApplicationContext(), AppDatabase::class.java, "smoke.db")`).
+   - Inserts a `DayRecordEntity`, reads it back, asserts equality. Deletes the file afterward.
+3. `ManualDetectionSmokeTest`:
+   - Resolves `RecordOfficeDayUseCase` via a Hilt test rule (`@HiltAndroidTest`).
+   - Calls it with `DetectionMethod.MANUAL` for today's date.
+   - Asserts `DayRecordRepository.getByDate(today)` emits a record with `confirmedByUser = true`.
+4. `ComplianceSmokeTest`:
+   - Seeds `MandateConfig` (50% mandate, Mon–Fri) and three `DayRecord`s spanning a calendar week.
+   - Invokes `CalculateComplianceUseCase`.
+   - Asserts `ComplianceResult.daysNeededToComply` is correct and non-negative.
+5. `WorkerSchedulingSmokeTest`:
+   - Uses `WorkManagerTestInitHelper` to drive a synchronous WorkManager.
+   - Enqueues `DayDetectionWorker`, advances time, asserts it ran to completion (Result.success).
+
+#### Acceptance Criteria
+- [ ] All four smoke tests live in `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/smoke/`.
+- [ ] Each test class is annotated `@RunWith(AndroidJUnit4::class)`.
+- [ ] `experiment/scripts/setup_emulator.sh` has been run on the host (one-time bootstrap; AVD `exp_avd` exists with a Quick Boot snapshot).
+- [ ] The QA command (below) passes all four tests with `0 failures, 0 errors`.
+- [ ] No smoke test references mocks for Room or WorkManager — the point is real-runtime coverage.
+- [ ] `app/build/reports/androidTests/connected/index.html` exists after the run.
+
+#### QA Verification Steps
+> Prerequisite (one-time host bootstrap, run by the operator before this task):
+> `experiment/scripts/setup_emulator.sh` — creates the `exp_avd` AVD and seeds a Quick Boot snapshot.
+> `with_emulator.sh` will fail loudly if the AVD is missing.
+
+```bash
+../../../experiment/scripts/with_emulator.sh ./gradlew connectedAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.package=com.carvalhorr.daysInOffice.smoke
+```
+

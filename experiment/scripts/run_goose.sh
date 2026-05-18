@@ -28,5 +28,5 @@ cd "$WORK_DIR"
 exec timeout "$TOOL_TIMEOUT" goose run \
   --provider openai \
   --model "$MODEL_ID" \
-  --with-extension computercontroller \
-  -- "$(cat "$PROMPT_FILE")"
+  --no-session \
+  --text "$(cat "$PROMPT_FILE")"

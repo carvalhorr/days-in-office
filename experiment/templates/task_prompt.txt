@@ -18,5 +18,13 @@ Instructions:
 3. Follow every constraint in "Implementation Details" exactly.
 4. Write all tests specified in the task.
 5. Do not create files not listed in the task scope.
-6. After implementing, update the task status in TASKS.md from NOT_STARTED to DONE.
-7. Commit with message: feat: complete {{TASK_ID}} — {{TASK_TITLE}}
+6. Commit with message: feat: complete {{TASK_ID}} — {{TASK_TITLE}}
+
+EDIT DISCIPLINE — read carefully, this is the #1 cause of retries:
+Aider applies your changes via SEARCH/REPLACE blocks. The SEARCH section must match the file's current contents EXACTLY — every character, every space, every blank line. There is no fuzzy matching. Before writing a SEARCH block:
+- If the file already exists, look at its actual content. Do not guess at imports, package declarations, or formatting based on what you "expect" to be there.
+- If the file is new (doesn't exist yet), use an empty SEARCH section — do not invent placeholder text.
+- Keep each SEARCH block small. The fewer lines in SEARCH, the fewer ways it can mismatch.
+- Never paraphrase, reformat, or "tidy up" the SEARCH section. Quote it verbatim.
+
+CRITICAL RULE: DO NOT modify, overwrite, or delete `gradlew`, the `gradle/` wrapper folder, `settings.gradle.kts`, `build.gradle.kts` (project-level), `app/build.gradle.kts`, `gradle/libs.versions.toml`, `ARCHITECTURE.md`, `TASKS.md`, or `CLAUDE.md`. These files are strictly managed by the framework — task status is updated automatically.

@@ -75,8 +75,18 @@ Every change must be committed. Use [Conventional Commits](https://www.conventio
 ./gradlew assembleRelease
 
 # Generate Hilt code
-./gradlew kaptDebugKotlin
+./gradlew kspDebugKotlin
 ```
+
+## Protected Files (Do Not Modify)
+
+The following files are pre-seeded by the experiment framework and must not be modified:
+- `gradlew` and the `gradle/` wrapper folder
+- `settings.gradle.kts` (project-level — plugin repositories and module includes)
+- `build.gradle.kts` (project-level — plugin version declarations)
+- `app/build.gradle.kts` (app-level — dependencies and build config)
+- `gradle/libs.versions.toml` (version catalog — all library aliases and versions)
+- `ARCHITECTURE.md`, `TASKS.md`, `CLAUDE.md`
 
 ## Key Invariants (Do Not Violate)
 

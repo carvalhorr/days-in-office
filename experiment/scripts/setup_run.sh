@@ -14,8 +14,8 @@ export PATH="/usr/local/opt/coreutils/libexec/gnubin:$JAVA_HOME/bin:$ANDROID_HOM
 TOOL="${1:?Usage: setup_run.sh <tool> <model_short_name>}"
 MODEL="${2:?}"
 
-VALID_TOOLS=(aider openhands goose)
-VALID_MODELS=(gemma4-31b devstral qwen25coder-32b deepseek-r1-32b)
+VALID_TOOLS=(aider openhands goose claude)
+VALID_MODELS=(gemma4-31b devstral qwen25coder-32b qwen25coder-14b deepseek-r1-32b sonnet-4-6)
 
 if ! printf '%s\n' "${VALID_TOOLS[@]}" | grep -qx "$TOOL"; then
   echo "ERROR: unknown tool '$TOOL'. Valid: ${VALID_TOOLS[*]}"
@@ -48,11 +48,27 @@ cp "$WRAPPER_DIR/gradle/wrapper/gradle-wrapper.jar"        "$RUN_DIR/gradle/wrap
 cp "$WRAPPER_DIR/gradle/wrapper/gradle-wrapper.properties" "$RUN_DIR/gradle/wrapper/"
 echo "  Copied Gradle wrapper (Gradle $(grep distributionUrl "$RUN_DIR/gradle/wrapper/gradle-wrapper.properties" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'))"
 
-# Copy reference docs
+# Copy pre-seeded Gradle build files (boilerplate — agents must not modify these)
+cp "$WRAPPER_DIR/settings.gradle.kts"              "$RUN_DIR/settings.gradle.kts"
+cp "$WRAPPER_DIR/build.gradle.kts"                 "$RUN_DIR/build.gradle.kts"
+cp "$WRAPPER_DIR/gradle.properties"                "$RUN_DIR/gradle.properties"
+mkdir -p "$RUN_DIR/app"
+cp "$WRAPPER_DIR/app/build.gradle.kts"             "$RUN_DIR/app/build.gradle.kts"
+mkdir -p "$RUN_DIR/gradle"
+cp "$WRAPPER_DIR/gradle/libs.versions.toml"        "$RUN_DIR/gradle/libs.versions.toml"
+echo "  Copied pre-seeded Gradle files (settings, build, app/build, libs.versions.toml, gradle.properties)"
+
+# Copy reference docs — reset all task statuses to NOT_STARTED so runs are always fresh
 cp "$ROOT_DIR/ARCHITECTURE.md" "$RUN_DIR/ARCHITECTURE.md"
 cp "$ROOT_DIR/TASKS.md"        "$RUN_DIR/TASKS.md"
 cp "$ROOT_DIR/CLAUDE.md"       "$RUN_DIR/CLAUDE.md"
-echo "  Copied ARCHITECTURE.md, TASKS.md, CLAUDE.md"
+python3 -c "
+import re
+from pathlib import Path
+p = Path('$RUN_DIR/TASKS.md')
+p.write_text(re.sub(r'\*\*Status:\*\*\s+\w+', '**Status:** NOT_STARTED', p.read_text()))
+"
+echo "  Copied ARCHITECTURE.md, TASKS.md (all statuses reset to NOT_STARTED), CLAUDE.md"
 
 # Initialise independent git repo in run dir
 git -C "$RUN_DIR" init -q
@@ -85,16 +101,24 @@ echo "  Java: $JAVA_VER"
 # Verify Android SDK
 [[ -z "${ANDROID_HOME:-}" ]] && echo "WARNING: ANDROID_HOME not set"
 
-# Verify Ollama reachable
-echo "  Checking Ollama at $OLLAMA_HOST ..."
-if ! curl -sf "$OLLAMA_HOST/api/tags" > /dev/null; then
-  echo "ERROR: Ollama not reachable at $OLLAMA_HOST"
-  exit 1
+# Verify Ollama reachable (skip for cloud tools that don't use Ollama)
+CLOUD_TOOLS=(claude)
+IS_CLOUD=0
+for t in "${CLOUD_TOOLS[@]}"; do [[ "$TOOL" == "$t" ]] && IS_CLOUD=1; done
+if [[ $IS_CLOUD -eq 0 ]]; then
+  echo "  Checking Ollama at $OLLAMA_HOST ..."
+  if ! curl -sf "$OLLAMA_HOST/api/tags" > /dev/null; then
+    echo "ERROR: Ollama not reachable at $OLLAMA_HOST"
+    exit 1
+  fi
+  OLLAMA_VER=$(curl -sf "$OLLAMA_HOST/api/version" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null \
+    || echo "unknown")
+  echo "    Ollama $OLLAMA_VER"
+else
+  echo "  Cloud tool $TOOL — skipping Ollama check"
+  OLLAMA_VER="n/a"
 fi
-OLLAMA_VER=$(curl -sf "$OLLAMA_HOST/api/version" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null \
-  || echo "unknown")
-echo "    Ollama $OLLAMA_VER"
 
 # Verify tool is installed
 bash "$SCRIPTS_DIR/setup_tool.sh" "$TOOL"

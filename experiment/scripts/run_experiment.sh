@@ -41,7 +41,7 @@ TEMPLATES_DIR="$ROOT_DIR/experiment/templates"
 TASK_PROMPT="$TEMPLATES_DIR/task_prompt.txt"
 RETRY_PROMPT="$TEMPLATES_DIR/retry_prompt.txt"
 
-MAX_ATTEMPTS=3
+MAX_ATTEMPTS=10
 LINT_MILESTONES="TASK-001 TASK-005 TASK-010 TASK-015 TASK-020"
 
 # ── Validate setup ──────────────────────────────────────────────────────────
@@ -90,6 +90,7 @@ case "$TOOL" in
   aider)     TOOL_VERSION=$(aider --version 2>&1 | head -1 || echo "unknown") ;;
   openhands) TOOL_VERSION=$(python3 -m openhands.core.main --version 2>&1 | head -1 || echo "unknown") ;;
   goose)     TOOL_VERSION=$(goose --version 2>&1 | head -1 || echo "unknown") ;;
+  claude)    TOOL_VERSION=$(claude --version 2>&1 | head -1 || echo "unknown") ;;
   *)         TOOL_VERSION="unknown" ;;
 esac
 echo "Tool version: $TOOL_VERSION"
@@ -131,6 +132,7 @@ from datetime import datetime
 content = Path("$RUN_DIR/TASKS.md").read_text()
 done   = len(re.findall(r'\*\*Status:\*\*\s+DONE',   content))
 failed = len(re.findall(r'\*\*Status:\*\*\s+FAILED', content))
+total  = len(re.findall(r'\*\*Status:\*\*',          content))
 
 data = {
   "status": "$status",
@@ -141,7 +143,7 @@ data = {
   "current_task_start": "${TASK_START_TIME:-}",
   "tasks_done": done,
   "tasks_failed": failed,
-  "tasks_total": 20,
+  "tasks_total": total,
   "last_updated": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
   "intervention_message": "$msg",
   "pause_requested": Path("$PAUSE_FILE").exists(),
@@ -165,7 +167,22 @@ for TASK_ID in $TASK_IDS; do
     continue
   fi
 
+  # Skip task if any dependency is not DONE
+  TASK_DEPS=$(python3 "$SCRIPTS_DIR/parse_tasks.py" "$RUN_DIR/TASKS.md" --task "$TASK_ID" --field dependencies 2>/dev/null || true)
+  DEP_BLOCKED=0
+  for DEP_ID in $TASK_DEPS; do
+    DEP_STATUS=$(python3 "$SCRIPTS_DIR/parse_tasks.py" "$RUN_DIR/TASKS.md" --task "$DEP_ID" --field status 2>/dev/null || echo "UNKNOWN")
+    if [[ "$DEP_STATUS" != "DONE" ]]; then
+      echo "── $TASK_ID: skipping — dependency $DEP_ID is $DEP_STATUS ──"
+      DEP_BLOCKED=1
+      break
+    fi
+  done
+  [[ $DEP_BLOCKED -eq 1 ]] && continue
+
   # Check pause file before each task
+  # TODO: also check inside the attempt loop so PAUSE can halt within minutes
+  # instead of waiting up to 10 attempts of the current task — see RUNS_LOG.md.
   if [[ -f "$PAUSE_FILE" ]]; then
     echo ""
     echo "PAUSE FILE detected. Pausing before $TASK_ID."
@@ -177,6 +194,11 @@ for TASK_ID in $TASK_IDS; do
   TASK_TITLE=$(python3 "$SCRIPTS_DIR/parse_tasks.py" "$RUN_DIR/TASKS.md" --task "$TASK_ID" --field title)
   echo ""
   echo "════════ $TASK_ID: $TASK_TITLE ════════"
+
+  # Build scope file list once per task — used by tool adapter and retry prompt
+  SCOPE_FILE_LIST=$(mktemp /tmp/scope_XXXXXX.txt)
+  python3 "$SCRIPTS_DIR/parse_tasks.py" "$RUN_DIR/TASKS.md" --task "$TASK_ID" --field scope_files > "$SCOPE_FILE_LIST"
+  SCOPE_FILES_TEXT=$(cat "$SCOPE_FILE_LIST")
 
   # Mark IN_PROGRESS
   python3 "$SCRIPTS_DIR/update_tasks_status.py" "$RUN_DIR/TASKS.md" "$TASK_ID" "IN_PROGRESS"
@@ -192,6 +214,7 @@ for TASK_ID in $TASK_IDS; do
   ATTEMPT_LOG_JSON="[]"
   QA_RESULTS="[]"
   COMMIT_HASH=""
+  ATTEMPT_HISTORY_TEXT=""
 
   for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
     ATTEMPTS=$ATTEMPT
@@ -217,6 +240,9 @@ for TASK_ID in $TASK_IDS; do
         --var "TASK_ID=$TASK_ID" \
         --var "TASK_TITLE=$TASK_TITLE" \
         --var "ATTEMPT_NUMBER=$ATTEMPT" \
+        --var "PREV_ATTEMPT_NUMBER=$((ATTEMPT - 1))" \
+        --var "ATTEMPT_HISTORY=$ATTEMPT_HISTORY_TEXT" \
+        --var "SCOPE_FILES=$SCOPE_FILES_TEXT" \
         --var "FAILURE_OUTPUT=$LAST_FAILURE_OUTPUT"
     fi
 
@@ -225,31 +251,50 @@ for TASK_ID in $TASK_IDS; do
     cp "$PROMPT_FILE" "$RESULTS_DIR/$TASK_ID/attempt${ATTEMPT}_prompt.txt"
 
     # Invoke tool adapter
+    # Tool adapters may write attempt${N}_usage.json into $ATTEMPT_USAGE_DIR
+    # (cost/token telemetry); merged into the attempt record below if present.
+    export ATTEMPT_USAGE_DIR="$RESULTS_DIR/$TASK_ID"
+    export ATTEMPT_NUMBER="$ATTEMPT"
     echo "  Invoking $TOOL with model $MODEL_OLLAMA_ID ..."
     TOOL_EXIT=0
-    bash "$SCRIPTS_DIR/run_${TOOL}.sh" "$PROMPT_FILE" "$RUN_DIR" "$MODEL_OLLAMA_ID" || TOOL_EXIT=$?
+    bash "$SCRIPTS_DIR/run_${TOOL}.sh" "$PROMPT_FILE" "$RUN_DIR" "$MODEL_OLLAMA_ID" "$SCOPE_FILE_LIST" || TOOL_EXIT=$?
     rm -f "$PROMPT_FILE"
+
+    # Pick up tool-specific usage telemetry (Claude writes cost/tokens here).
+    USAGE_FILE="$RESULTS_DIR/$TASK_ID/attempt${ATTEMPT}_usage.json"
+    ATTEMPT_USAGE_JSON="{}"
+    [[ -f "$USAGE_FILE" ]] && ATTEMPT_USAGE_JSON=$(cat "$USAGE_FILE")
 
     if [[ $TOOL_EXIT -ne 0 ]]; then
       if [[ $TOOL_EXIT -eq 124 ]]; then
         echo "  TIMEOUT after ${TOOL_TIMEOUT}s"
-        FAILURE_REASONS+=("TIMEOUT")
+        CURRENT_OUTCOME="TIMEOUT"
         LAST_FAILURE_OUTPUT="Tool timed out after ${TOOL_TIMEOUT}s"
       else
         echo "  TOOL_ERROR (exit $TOOL_EXIT)"
-        FAILURE_REASONS+=("TOOL_ERROR")
+        CURRENT_OUTCOME="TOOL_ERROR"
         LAST_FAILURE_OUTPUT="Tool exited with code $TOOL_EXIT"
       fi
+      FAILURE_REASONS+=("$CURRENT_OUTCOME")
       echo "$LAST_FAILURE_OUTPUT" > "$RESULTS_DIR/$TASK_ID/attempt${ATTEMPT}_failure.txt"
+      ATTEMPT_HISTORY_TEXT=$(python3 -c "
+import sys
+hist, attempt, outcome, brief = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].replace('\n',' ')[:300]
+print(hist + 'Attempt ' + attempt + ' (' + outcome + '): ' + brief + '\n', end='')
+" "$ATTEMPT_HISTORY_TEXT" "$ATTEMPT" "$CURRENT_OUTCOME" "$LAST_FAILURE_OUTPUT")
       git -C "$RUN_DIR" add -A 2>/dev/null || true
       git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
-        git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — tool error (exit $TOOL_EXIT)"
+        git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — tool error (exit $TOOL_EXIT) (Started: $ATTEMPT_START_TIME, Ended: $(date +%Y-%m-%dT%H:%M:%S))"
+      git -C "$ROOT_DIR" fetch "$RUN_DIR" HEAD:"$BRANCH" 2>/dev/null || true
       ATTEMPT_END_SECS=$(date +%s)
       ATTEMPT_LOG_JSON=$(python3 -c "
 import json, sys
 arr = json.loads(sys.argv[1])
-arr.append({'attempt':$ATTEMPT,'start_time':sys.argv[2],'end_time':sys.argv[3],'duration_seconds':$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),'outcome':sys.argv[4]})
-print(json.dumps(arr))" "$ATTEMPT_LOG_JSON" "$ATTEMPT_START_TIME" "$(date +%Y-%m-%dT%H:%M:%S)" "${FAILURE_REASONS[-1]}")
+rec = {'attempt':$ATTEMPT,'start_time':sys.argv[2],'end_time':sys.argv[3],'duration_seconds':$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),'outcome':sys.argv[4]}
+usage = json.loads(sys.argv[5])
+if usage: rec['usage'] = usage
+arr.append(rec)
+print(json.dumps(arr))" "$ATTEMPT_LOG_JSON" "$ATTEMPT_START_TIME" "$(date +%Y-%m-%dT%H:%M:%S)" "$CURRENT_OUTCOME" "$ATTEMPT_USAGE_JSON")
       continue
     fi
 
@@ -286,29 +331,42 @@ print(json.dumps(arr))" "$QA_RESULTS" 2>/dev/null || echo "$QA_RESULTS")
       python3 "$SCRIPTS_DIR/update_tasks_status.py" "$RUN_DIR/TASKS.md" "$TASK_ID" "DONE"
       git -C "$RUN_DIR" add -A 2>/dev/null || true
       git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
-        git -C "$RUN_DIR" commit -q -m "feat: complete $TASK_ID — $TASK_TITLE"
+        git -C "$RUN_DIR" commit -q -m "feat: complete $TASK_ID — $TASK_TITLE (Started: $ATTEMPT_START_TIME, Ended: $(date +%Y-%m-%dT%H:%M:%S))"
+      git -C "$ROOT_DIR" fetch "$RUN_DIR" HEAD:"$BRANCH" 2>/dev/null || true
       COMMIT_HASH=$(git -C "$RUN_DIR" rev-parse HEAD 2>/dev/null || echo "")
       ATTEMPT_END_SECS=$(date +%s)
       ATTEMPT_LOG_JSON=$(python3 -c "
 import json, sys
 arr = json.loads(sys.argv[1])
-arr.append({'attempt':$ATTEMPT,'start_time':sys.argv[2],'end_time':sys.argv[3],'duration_seconds':$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),'outcome':'DONE'})
-print(json.dumps(arr))" "$ATTEMPT_LOG_JSON" "$ATTEMPT_START_TIME" "$(date +%Y-%m-%dT%H:%M:%S)")
+rec = {'attempt':$ATTEMPT,'start_time':sys.argv[2],'end_time':sys.argv[3],'duration_seconds':$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),'outcome':'DONE'}
+usage = json.loads(sys.argv[4])
+if usage: rec['usage'] = usage
+arr.append(rec)
+print(json.dumps(arr))" "$ATTEMPT_LOG_JSON" "$ATTEMPT_START_TIME" "$(date +%Y-%m-%dT%H:%M:%S)" "$ATTEMPT_USAGE_JSON")
       break
     else
       echo "  ✗ QA failed on attempt $ATTEMPT"
       FAILURE_REASONS+=("QA_FAIL")
       LAST_FAILURE_OUTPUT=$(echo -e "$LAST_FAILURE_OUTPUT" | tail -c 4000)
       printf '%s' "$LAST_FAILURE_OUTPUT" > "$RESULTS_DIR/$TASK_ID/attempt${ATTEMPT}_failure.txt"
+      ATTEMPT_HISTORY_TEXT=$(python3 -c "
+import sys
+hist, attempt, outcome, brief = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].replace('\n',' ')[:300]
+print(hist + 'Attempt ' + attempt + ' (' + outcome + '): ' + brief + '\n', end='')
+" "$ATTEMPT_HISTORY_TEXT" "$ATTEMPT" "QA_FAIL" "$LAST_FAILURE_OUTPUT")
       git -C "$RUN_DIR" add -A 2>/dev/null || true
       git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
-        git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — QA failed"
+        git -C "$RUN_DIR" commit -q -m "fix: retry $ATTEMPT for $TASK_ID — QA failed (Started: $ATTEMPT_START_TIME, Ended: $(date +%Y-%m-%dT%H:%M:%S))"
+      git -C "$ROOT_DIR" fetch "$RUN_DIR" HEAD:"$BRANCH" 2>/dev/null || true
       ATTEMPT_END_SECS=$(date +%s)
       ATTEMPT_LOG_JSON=$(python3 -c "
 import json, sys
 arr = json.loads(sys.argv[1])
-arr.append({'attempt':$ATTEMPT,'start_time':sys.argv[2],'end_time':sys.argv[3],'duration_seconds':$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),'outcome':'QA_FAIL'})
-print(json.dumps(arr))" "$ATTEMPT_LOG_JSON" "$ATTEMPT_START_TIME" "$(date +%Y-%m-%dT%H:%M:%S)")
+rec = {'attempt':$ATTEMPT,'start_time':sys.argv[2],'end_time':sys.argv[3],'duration_seconds':$((ATTEMPT_END_SECS - ATTEMPT_START_SECS)),'outcome':'QA_FAIL'}
+usage = json.loads(sys.argv[4])
+if usage: rec['usage'] = usage
+arr.append(rec)
+print(json.dumps(arr))" "$ATTEMPT_LOG_JSON" "$ATTEMPT_START_TIME" "$(date +%Y-%m-%dT%H:%M:%S)" "$ATTEMPT_USAGE_JSON")
     fi
   done  # attempts
 
@@ -369,6 +427,8 @@ print(json.dumps(record))
   git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
     git -C "$RUN_DIR" commit -q -m "chore: results $TASK_ID — $TASK_STATUS_FINAL ($ATTEMPTS attempt(s))"
   git -C "$ROOT_DIR" fetch "$RUN_DIR" HEAD:"$BRANCH" 2>/dev/null || true
+
+  rm -f "$SCOPE_FILE_LIST"
 
   STATUS_ICON="✓"
   [[ "$TASK_STATUS_FINAL" == "FAILED" ]] && STATUS_ICON="✗"

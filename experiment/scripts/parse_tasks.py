@@ -36,6 +36,7 @@ def parse_tasks(content: str) -> dict:
         status = _extract_status(body)
         qa_commands = _extract_qa_commands(body)
         scope_files = _extract_scope_files(body)
+        dependencies = _extract_dependencies(body)
 
         tasks[task_id] = {
             "title": title,
@@ -43,6 +44,7 @@ def parse_tasks(content: str) -> dict:
             "body": body.strip(),
             "qa_commands": qa_commands,
             "scope_files": scope_files,
+            "dependencies": dependencies,
         }
 
     return tasks
@@ -54,17 +56,32 @@ def _extract_status(body: str) -> str:
 
 
 def _extract_qa_commands(body: str) -> list:
-    """Extract commands from the QA Verification Steps bash block."""
-    m = re.search(r'#### QA Verification Steps\n```bash\n(.*?)```', body, re.DOTALL)
+    """Extract commands from the QA Verification Steps bash block.
+    Honours shell `\\` line continuations so multi-line commands stay one command.
+    """
+    m = re.search(r'#### QA Verification Steps\n.*?```bash\n(.*?)```', body, re.DOTALL)
     if not m:
         return []
     raw = m.group(1).strip()
+    # Fold shell line continuations before splitting.
+    raw = re.sub(r'\\\n\s*', ' ', raw)
     commands = []
     for line in raw.splitlines():
         line = line.strip()
         if line and not line.startswith('#'):
             commands.append(line)
     return commands
+
+
+def _extract_dependencies(body: str) -> list:
+    """Extract task IDs from the Dependencies line."""
+    m = re.search(r'\*\*Dependencies:\*\*\s*(.+)', body)
+    if not m:
+        return []
+    raw = m.group(1).strip()
+    if raw.lower() in ('none', ''):
+        return []
+    return re.findall(r'TASK-\d+', raw)
 
 
 def _extract_scope_files(body: str) -> list:
@@ -75,8 +92,10 @@ def _extract_scope_files(body: str) -> list:
     files = []
     for line in m.group(1).splitlines():
         line = line.strip()
-        if line.startswith('- `') and line.endswith('`'):
-            files.append(line[3:-1])
+        # Match "- `path/to/file`" with optional trailing comment e.g. "(version catalog)"
+        backtick_match = re.match(r'^- `([^`]+)`', line)
+        if backtick_match:
+            files.append(backtick_match.group(1))
         elif line.startswith('- ') and not line.startswith('- `'):
             # plain path without backticks
             path = line[2:].strip()
@@ -92,7 +111,7 @@ def main():
     group.add_argument('--list', action='store_true', help='List all task IDs')
     group.add_argument('--task', metavar='TASK_ID', help='Task ID to query')
     group.add_argument('--verify', action='store_true', help='Verify and summarize')
-    parser.add_argument('--field', choices=['body', 'qa_commands', 'scope_files', 'title', 'status'],
+    parser.add_argument('--field', choices=['body', 'qa_commands', 'scope_files', 'dependencies', 'title', 'status'],
                         help='Field to print (used with --task)')
     args = parser.parse_args()
 
@@ -137,6 +156,9 @@ def main():
         elif field == 'scope_files':
             for f in task['scope_files']:
                 print(f)
+        elif field == 'dependencies':
+            for d in task['dependencies']:
+                print(d)
         else:
             print(task[field])
 

@@ -10,13 +10,10 @@ shift
 COMMAND="$*"
 QA_TIMEOUT="${QA_TIMEOUT:-900}"
 
-# Skip connectedAndroidTest if no device is attached
-if echo "$COMMAND" | grep -q "connectedAndroidTest"; then
-  if ! adb devices 2>/dev/null | grep -q "device$"; then
-    echo '{"exit_code":0,"passed":true,"duration_seconds":0,"output":"SKIPPED_NO_DEVICE","skipped_reason":"No ADB device detected"}'
-    exit 0
-  fi
-fi
+# Note: connectedAndroidTest is never invoked bare by any task QA command —
+# tasks needing an emulator wrap their command in experiment/scripts/with_emulator.sh,
+# which boots the AVD before the test runs. A missing device here is a real
+# failure, not something to silently skip.
 
 START=$(date +%s)
 TMPOUT=$(mktemp)

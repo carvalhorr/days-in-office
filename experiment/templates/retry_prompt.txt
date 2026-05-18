@@ -1,10 +1,27 @@
-The previous implementation attempt for {{TASK_ID}} failed QA verification (attempt {{ATTEMPT_NUMBER}}).
+This is attempt {{ATTEMPT_NUMBER}} to implement {{TASK_ID}}: {{TASK_TITLE}}.
 
-Failing command output:
+The previous {{PREV_ATTEMPT_NUMBER}} attempt(s) all failed. Here is a summary of what was tried and what went wrong each time:
+
+{{ATTEMPT_HISTORY}}
+The full output from the most recent failure is below:
 
 <failure>
 {{FAILURE_OUTPUT}}
 </failure>
 
-Review the error carefully. Fix the implementation so the QA verification passes.
+SCOPE RESTRICTION — You must ONLY modify these files for {{TASK_ID}}. Do not create or touch any other file:
+{{SCOPE_FILES}}
+
+Before writing any code:
+1. Read the error carefully and identify the root cause.
+2. Check the history above — do NOT repeat an approach that already failed.
+3. Apply a targeted fix that directly addresses the root cause.
+4. Only output SEARCH/REPLACE blocks for files in the scope list above.
+5. EDIT DISCIPLINE — if the previous failure was a "SearchReplaceNoExactMatch" error:
+   - The SEARCH section you wrote did not byte-for-byte match the file. Aider compares character-by-character with zero tolerance for whitespace or formatting differences.
+   - DO NOT re-send the same SEARCH text. Look at the file's actual current contents and emit a SEARCH that matches exactly. Keep it as small as possible — fewer lines means fewer mismatch points.
+   - If creating a new file, use an empty SEARCH section.
+
 Commit the fix with message: fix: retry {{ATTEMPT_NUMBER}} for {{TASK_ID}}
+
+CRITICAL RULE: DO NOT modify or delete `gradlew`, the `gradle/` wrapper folder, `settings.gradle.kts`, `build.gradle.kts` (project-level), `app/build.gradle.kts`, `gradle/libs.versions.toml`, `ARCHITECTURE.md`, `TASKS.md`, or `CLAUDE.md`. Task status is updated automatically — do not touch TASKS.md.

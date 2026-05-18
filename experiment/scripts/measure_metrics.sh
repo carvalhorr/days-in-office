@@ -27,7 +27,7 @@ UNIT_FAIL="null"
 LINT_COUNT="null"
 
 if [[ $DO_BUILD -eq 1 ]]; then
-  if (cd "$WORK_DIR" && timeout 300 ./gradlew assembleDebug -q 2>&1); then
+  if (cd "$WORK_DIR" && timeout 300 ./gradlew assembleDebug -q > /dev/null 2>&1); then
     BUILD_SUCCESS="true"
   else
     BUILD_SUCCESS="false"
@@ -35,7 +35,7 @@ if [[ $DO_BUILD -eq 1 ]]; then
 fi
 
 if [[ $DO_TESTS -eq 1 ]]; then
-  (cd "$WORK_DIR" && timeout 300 ./gradlew testDebugUnitTest -q 2>&1) || true
+  (cd "$WORK_DIR" && timeout 300 ./gradlew testDebugUnitTest -q > /dev/null 2>&1) || true
   # Parse JUnit XML results
   XML_DIR="$WORK_DIR/app/build/test-results/testDebugUnitTest"
   if [[ -d "$XML_DIR" ]]; then
@@ -70,7 +70,7 @@ print(total_fail)
 fi
 
 if [[ $DO_LINT -eq 1 ]]; then
-  (cd "$WORK_DIR" && timeout 300 ./gradlew lintDebug -q 2>&1) || true
+  (cd "$WORK_DIR" && timeout 300 ./gradlew lintDebug -q > /dev/null 2>&1) || true
   LINT_XML="$WORK_DIR/app/build/reports/lint-results-debug.xml"
   if [[ -f "$LINT_XML" ]]; then
     LINT_COUNT=$(python3 "$SCRIPTS_DIR/parse_lint.py" "$LINT_XML" 2>/dev/null || echo "null")

@@ -960,6 +960,428 @@ Catches the rough edges before TASK-021 (release smoke). Adds empty states, erro
 
 ---
 
+## Phase 6: Bug Fixes (from 2026-05-18 audit)
+
+> This phase fixes bugs discovered after the first complete run (claude × sonnet-4-6 reached 21/21 on 2026-05-18). Each task corresponds to one or more bugs from `BUGS.md` and is fully self-contained — you don't need to read `BUGS.md` to do the work, but the bug register has the full triage and the original audit screenshots at `experiment/audit-shots/2026-05-18/`.
+>
+> These tasks **modify existing code**, not greenfield-implement it. Be surgical: change only what the task specifies. Always run the existing test suite to make sure unrelated tests still pass.
+
+---
+
+### TASK-022: Fix BUG-004 — exclude PTO and HOLIDAY days from compliance calculation
+**Status:** NOT_STARTED
+**Dependencies:** TASK-005
+**Complexity:** Simple
+
+#### Context
+When a user marks a day as PTO via the Calendar's `DayDetailSheet`, the compliance calculation does not reflect it: `totalWorkingDays` stays the same and the ring percentage doesn't change. This breaks the architecture's implicit invariant (`ARCHITECTURE.md` §5.1 + §15) that PTO/HOLIDAY days are excluded from the mandate calculation.
+
+**Confirmed root cause:**
+1. `core/domain/usecase/GetWorkingDaysUseCase.kt:18` filters only by `HolidayEntity` rows in the `holidays` table, not by `DayRecord` rows with `status = PTO` or `status = HOLIDAY`.
+2. `core/domain/usecase/GetComplianceUseCase.kt:61-83` (`buildResult`) then uses `workingDays.size` as the denominator. PTO/HOLIDAY day-records are silently dropped from numerator counts (don't match OFFICE/REMOTE/UNKNOWN) but still inflate the denominator.
+
+The PTO button in `DayDetailSheet.kt:98-103` works fine; the bug is purely in the use-case logic.
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/GetComplianceUseCase.kt`
+
+#### Scope — Files to Create
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/domain/usecase/GetComplianceUseCaseTest.kt` (if it doesn't already exist)
+
+#### Implementation Details
+Modify `GetComplianceUseCase.buildResult` to compute a user-exclusion set from records with `status = PTO` or `status = HOLIDAY`, and subtract those days from the working-days set before computing counts:
+
+```kotlin
+private fun buildResult(
+    config: MandateConfig,
+    records: List<DayRecord>,
+    workingDays: List<LocalDate>,
+    start: LocalDate, end: LocalDate
+): ComplianceResult {
+    val recordMap = records.associateBy { it.date }
+    val userExcludedDays = records
+        .filter { it.status == DayStatus.PTO || it.status == DayStatus.HOLIDAY }
+        .map { it.date }
+        .toSet()
+    val effectiveWorkingDays = workingDays.filter { it !in userExcludedDays }
+
+    val officeDays = effectiveWorkingDays.count { recordMap[it]?.status == DayStatus.OFFICE }
+    val remoteDays = effectiveWorkingDays.count { recordMap[it]?.status == DayStatus.REMOTE }
+    val unknownDays = effectiveWorkingDays.count {
+        recordMap[it] == null || recordMap[it]?.status == DayStatus.UNKNOWN
+    }
+    return ComplianceResult(
+        periodStart = start,
+        periodEnd = end,
+        totalWorkingDays = effectiveWorkingDays.size,
+        officeDays = officeDays,
+        remoteDays = remoteDays,
+        unknownDays = unknownDays,
+        targetPercentage = config.targetPercentage
+    )
+}
+```
+
+Leave `GetWorkingDaysUseCase` alone — it correctly represents "potential working days from a calendar perspective" (used by the Calendar view to display every weekday). The compliance use case applies the user-exclusions on top.
+
+#### Acceptance Criteria
+- [ ] `GetComplianceUseCaseTest` has a test: given 10 working days with 2 marked PTO, `totalWorkingDays == 8`.
+- [ ] `GetComplianceUseCaseTest` has a test: given 10 working days, 5 OFFICE, 2 PTO, the `currentPercentage` computes against the smaller denominator (5/8 ≈ 0.625), not the original 10.
+- [ ] Days marked as HOLIDAY (via day-record, not the holidays table) are treated the same way as PTO — also excluded.
+- [ ] Pre-existing tests in the repo still pass — don't break anything.
+- [ ] `daysNeededToComply` is never negative (`ComplianceResult` enforces this).
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.domain.usecase.GetComplianceUseCaseTest"
+./gradlew assembleDebug
+```
+
+---
+
+### TASK-023: Fix BUG-001 — add back navigation from Settings to Dashboard
+**Status:** NOT_STARTED
+**Dependencies:** TASK-012, TASK-016
+**Complexity:** Simple
+
+#### Context
+When the user taps the gear icon on Dashboard, they reach Settings — but there's no visible back affordance, and many users don't realize the bottom-nav Dashboard tab is the way back. `SettingsScreen.kt:87` has no `navigationIcon` in its TopAppBar; `DaysInOfficeNavHost.kt:47-49` pushes Settings as a drill-in instead of switching tabs.
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/SettingsScreen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/navigation/DaysInOfficeNavHost.kt`
+
+#### Implementation Details
+1. **In `SettingsScreen.kt`:** add a `navigationIcon` to the TopAppBar with a back arrow. Take a new `onNavigateBack: (() -> Unit)?` parameter (nullable) — if null, render no nav icon (so when Settings is reached via the bottom-nav tab there's no redundant back arrow):
+```kotlin
+@Composable
+fun SettingsScreen(
+    onNavigateBack: (() -> Unit)?,
+    onNavigateToOnboarding: () -> Unit,
+    viewModel: SettingsViewModel
+) {
+    ...
+    TopAppBar(
+        title = { Text("Settings") },
+        navigationIcon = {
+            if (onNavigateBack != null) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            }
+        }
+    )
+    ...
+}
+```
+
+2. **In `DaysInOfficeNavHost.kt`:** pass `onNavigateBack = if (navController.previousBackStackEntry != null) { { navController.popBackStack() } } else null`. This ensures the back arrow only shows when there's somewhere to pop to (which is true when the gear-icon path is used; false when the user lands on Settings via the bottom-nav tab from a clean state).
+
+3. Keep the existing bottom-nav behaviour unchanged — Settings remains a tab destination, and the bottom-nav Dashboard tab still works as a way back.
+
+#### Acceptance Criteria
+- [ ] Tapping the gear icon on Dashboard navigates to Settings.
+- [ ] A back arrow is visible in the Settings TopAppBar when Settings was reached via the gear icon.
+- [ ] Tapping the back arrow returns to Dashboard.
+- [ ] When Settings is reached via the bottom-nav Settings tab (after restoring state), the back arrow is **not** shown (no previous back-stack entry).
+- [ ] Bottom-nav still works for navigating between Dashboard / Calendar / Settings.
+- [ ] No other navigation flows are affected.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.app.navigation.*"
+./gradlew assembleDebug
+```
+
+---
+
+### TASK-024: Fix BUG-007 — allow re-selecting today's check-in from Dashboard
+**Status:** NOT_STARTED
+**Dependencies:** TASK-014
+**Complexity:** Simple
+
+#### Context
+After the user taps either "Check in" or "Remote" on the Dashboard, both buttons go disabled (`QuickCheckInButton.kt:31, 40` — `enabled = !isConfirmedToday`). This was implemented from TASK-014's literal "disabled state when confirmed" acceptance criterion but over-applies the architecture invariant. Key Invariant #1 (`ARCHITECTURE.md` §15) is about **automated detection** not overwriting user choices — it has nothing to do with the user manually correcting their own mistake.
+
+The ViewModel methods (`DashboardViewModel.kt:83-93`) already allow re-write — they call `RecordOfficeDayUseCase` / `RecordRemoteDayUseCase` which write `confirmedByUser = true` regardless. The bug is purely the UI's `enabled` predicate.
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/ui/QuickCheckInButton.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/ui/DashboardScreen.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/DashboardViewModelTest.kt` (add a test if not already covered)
+
+#### Implementation Details
+1. **Change `QuickCheckInButton` signature** to accept `currentStatus: DayStatus?` instead of `isConfirmedToday: Boolean`. Always enable both buttons. Render the active selection visually:
+```kotlin
+@Composable
+fun QuickCheckInButton(
+    onCheckInOffice: () -> Unit,
+    onCheckInRemote: () -> Unit,
+    currentStatus: DayStatus?,
+    modifier: Modifier = Modifier
+) {
+    val officeSelected = currentStatus == DayStatus.OFFICE
+    val remoteSelected = currentStatus == DayStatus.REMOTE
+    Row(...) {
+        if (officeSelected) {
+            Button(onClick = onCheckInOffice, ..., colors = ButtonDefaults.buttonColors(containerColor = colorOfficeGreen)) { Text("🏢 Check in") }
+        } else {
+            OutlinedButton(onClick = onCheckInOffice, ..., colors = ButtonDefaults.outlinedButtonColors(contentColor = colorOfficeGreen), border = BorderStroke(1.dp, colorOfficeGreen)) { Text("🏢 Check in") }
+        }
+        // Same pattern flipped for Remote button using colorRemoteBlue
+    }
+}
+```
+2. **Update `DashboardScreen.kt:CheckInCard`** call site (around line 273-278) to pass `currentStatus = todayRecord?.status` instead of `isConfirmedToday`.
+3. Verify the architectural invariant about "never overwrite confirmed records" still holds for **automated detection** — that's in `core/detection/DetectionOrchestrator.kt`, unaffected by this fix. Don't touch that path.
+
+#### Acceptance Criteria
+- [ ] Tapping either button always works, regardless of `confirmedByUser`.
+- [ ] The currently-selected status (OFFICE / REMOTE) is visually distinct (filled button vs outlined).
+- [ ] Re-tapping the same button is idempotent (no error, no flicker, status remains the same).
+- [ ] Switching from OFFICE → REMOTE → OFFICE updates the day record through both transitions (verify in DashboardViewModelTest).
+- [ ] `DetectionOrchestrator` still respects the `confirmedByUser` flag for automated detection (don't break this — keep its existing tests passing).
+- [ ] Button labels include the prototype's emojis: `🏢 Check in` and `🏠 Remote`.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.dashboard.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.detection.*"
+./gradlew assembleDebug
+```
+
+---
+
+### TASK-025: Fix BUG-002 — UI polish to better match prototype
+**Status:** NOT_STARTED
+**Dependencies:** TASK-020
+**Complexity:** Complex (many small fixes across many files)
+
+#### Context
+A visual audit on 2026-05-18 (`experiment/audit-shots/2026-05-18/`) found 10 specific divergences between the implemented app and `prototype/index.html`. This task fixes all 10 in one pass. Each is small individually; bundling reduces total work vs filing 10 separate tasks.
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/ui/DashboardScreen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/ui/QuickCheckInButton.kt` (also modified by TASK-024 — re-read after that lands)
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/ui/ComplianceRing.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/calendar/ui/CalendarScreen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/SettingsScreen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/navigation/BottomNavBar.kt`
+
+#### Implementation Details
+Open `prototype/index.html` in a browser (or read the relevant sections) to confirm each visual detail.
+
+**1. Replace Material vector icons with emoji** (matches prototype convention):
+   - `DashboardScreen.kt:64` — `Icon(Icons.Default.Settings)` → `Text("⚙️", style = MaterialTheme.typography.titleLarge)`
+   - `SettingsScreen.kt` — every settings row icon (currently uses `Icons.Default.Settings`, `Icons.Default.DateRange`, `Icons.Default.LocationOn`, `Icons.Default.Refresh`):
+     - Target row: `🎯`
+     - Period row: `📅`
+     - Working days row: `📆`
+     - Wi-Fi (connected): `📶`
+     - Wi-Fi (scan only): `📡`
+     - Geofencing: `📍`
+     - Calendar sync: `🗓️`
+     - Sync now: `🔄`
+     - Export CSV: `📤`
+     - Reset onboarding: `🔁`
+   - Wrap each in a small composable like `EmojiIcon(emoji)` if you find yourself repeating styling.
+
+**2. Add vertical dividers between StatItems** (`DashboardScreen.kt:200-235`, `StatsStrip`):
+   - Between each `StatItem`, render a `Box(modifier = Modifier.width(1.dp).height(60.dp).background(MaterialTheme.colorScheme.outlineVariant))`.
+   - Use `Row` with `Arrangement.SpaceEvenly` or compute proper spacing so dividers don't collide with text.
+
+**3. Fix Period chip colour** (`DashboardScreen.kt:166-180`, `PeriodChip`):
+   - Replace `color = MaterialTheme.colorScheme.secondaryContainer` with a fixed brand purple (`Color(0xFFEADDFF)` for background, `Color(0xFF21005D)` for text). Define in `app/theme/Color.kt` as `BrandPeriodChipBg` and `BrandPeriodChipText`.
+
+**4. Fix compliance ring** (`ComplianceRing.kt`):
+   - Track stroke width should be 18/190 of the ring diameter (so for a 190dp ring, 18dp stroke; scale if you used a different size).
+   - Track colour should be `#EDE7F6` (light lavender). Use `Color(0xFFEDE7F6)`.
+   - Progress arc should render as a clean arc, not a rounded-rect blob. If using `Canvas.drawArc`, ensure `useCenter = false` and `style = Stroke(width, cap = StrokeCap.Round)`. The arc should sweep clockwise from 12 o'clock proportional to the percentage.
+
+**5. Remove M3 NavigationBar pill indicator** (`BottomNavBar.kt:20-36`):
+   ```kotlin
+   NavigationBarItem(
+       ...
+       colors = NavigationBarItemDefaults.colors(
+           indicatorColor = Color.Transparent
+       )
+   )
+   ```
+
+**6. Tweak check-in card subtitle copy** (`DashboardScreen.kt:245-251`):
+   - When `currentStatus == OFFICE`: `"✓ Checked in for the office"`
+   - When `currentStatus == REMOTE`: `"Marked as remote day"`
+   - When `currentStatus == null` or `UNKNOWN`: `"Are you in the office today?"`
+   - When `PTO`: `"On PTO today"`
+
+**7. Restructure Calendar month nav** (`CalendarScreen.kt`):
+   - TopAppBar should have just `title = { Text("Calendar") }` — no `navigationIcon` row.
+   - Below the TopAppBar (inside the screen content), add a separate `Row` with `IconButton(prev)`, `Text(monthName)`, `IconButton(next)` — matching prototype's `.month-nav`.
+
+**8. Add Weekend legend item** (`CalendarScreen.kt`, the legend at the bottom):
+   - Add a 5th legend item: `LegendItem(color = Color(0xFFBDBDBD), label = "Weekend")` between Holiday/PTO and Unknown (or at the end — match the prototype's ordering).
+
+**9. Strengthen Settings section header style** (`SettingsScreen.kt`, section title `Text`):
+   - Add `fontWeight = FontWeight.SemiBold` (or `Bold`).
+   - Add `modifier = Modifier.padding(top = 24.dp, bottom = 8.dp, start = 16.dp)`.
+   - Verify colour is the same blue used throughout the section labels.
+
+**10. (No fix needed for the Target slider — it already matches the prototype reasonably well.** Leave `TargetSheet.kt` as-is.)
+
+#### Acceptance Criteria
+- [ ] `./gradlew assembleDebug` succeeds.
+- [ ] `./gradlew testDebugUnitTest` passes — no existing tests broken.
+- [ ] Manual visual check (after install on emulator): Dashboard, Calendar, Settings each match the prototype more closely than before:
+  - Dashboard: emoji gear icon, period chip purple, ring stroke thinner, stats dividers present, check-in card emojis on buttons.
+  - Calendar: separate `< Month >` row below the app bar, 5-item legend including Weekend.
+  - Settings: emoji icons on every row, stronger section header style.
+  - Bottom nav: no pill indicator around the selected icon.
+- [ ] No regressions in navigation, data flow, or persistence.
+
+#### QA Verification Steps
+```bash
+./gradlew assembleDebug
+./gradlew testDebugUnitTest
+```
+
+---
+
+### TASK-026: Fix BUG-003 + BUG-005 — auto-detect for geofence and Wi-Fi SSID
+**Status:** NOT_STARTED
+**Dependencies:** TASK-013, TASK-016, TASK-017
+**Complexity:** Complex
+
+#### Context
+The geofence picker (in onboarding's Detection step + Settings → Geofencing sheet) and the Wi-Fi SSID picker (in onboarding's Detection step + Settings → Wi-Fi (connected) / Wi-Fi (scan only) sheets) currently require manual text-field entry only. The prototype has primary auto-detect buttons in both: "📍 Use current location" for geofence, "📡 Scan for networks" for Wi-Fi. These are missing.
+
+This task adds both auto-detect flows together because they share infrastructure (new data sources, new shared picker composables, integration with the existing `PermissionRequester` from TASK-017).
+
+#### Scope — Files to Create
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/datasource/LocationProvider.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/data/datasource/WifiScanner.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/shared/ui/GeofencePicker.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/shared/ui/WifiSsidPicker.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/data/datasource/LocationProviderTest.kt`
+- `app/src/test/kotlin/com/carvalhorr/daysInOffice/core/data/datasource/WifiScannerTest.kt`
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/core/di/DataSourceModule.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/onboarding/ui/DetectionSetupStep.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/GeofenceSheet.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/WifiConnectedSheet.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/WifiScanSheet.kt`
+
+#### Implementation Details
+
+**1. `LocationProvider.kt`** — wraps `FusedLocationProviderClient`:
+```kotlin
+class LocationProvider @Inject constructor(@ApplicationContext private val context: Context) {
+    private val client by lazy { LocationServices.getFusedLocationProviderClient(context) }
+    suspend fun getCurrentLocation(): Result<Location> = suspendCancellableCoroutine { cont ->
+        try {
+            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                .addOnSuccessListener { loc ->
+                    if (loc != null) cont.resume(Result.success(loc))
+                    else cont.resume(Result.failure(IllegalStateException("Location unavailable")))
+                }
+                .addOnFailureListener { e -> cont.resume(Result.failure(e)) }
+        } catch (e: SecurityException) {
+            cont.resume(Result.failure(e))
+        }
+    }
+}
+```
+Note: caller must hold `ACCESS_FINE_LOCATION` permission. Returns a `Result` so the caller can handle errors without exceptions.
+
+**2. `WifiScanner.kt`** — wraps `WifiManager`:
+```kotlin
+class WifiScanner @Inject constructor(@ApplicationContext private val context: Context) {
+    private val wifi by lazy { context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager }
+    suspend fun scanForSsids(): Result<List<String>> {
+        // Register a BroadcastReceiver for SCAN_RESULTS_AVAILABLE_ACTION, call startScan,
+        // wait for the receiver (with a 10s timeout), collect getScanResults().
+        // Return Result.failure if startScan returns false (throttled) or timeout.
+        // Filter results to unique non-empty SSIDs.
+    }
+}
+```
+Implementation note: Android's `WifiManager.startScan()` returns boolean; false means throttled. Use `BroadcastReceiver` with `SCAN_RESULTS_AVAILABLE_ACTION` to know when results are ready. Have a 10s timeout.
+
+**3. `GeofencePicker.kt`** — shared composable used by onboarding and settings:
+```kotlin
+@Composable
+fun GeofencePicker(
+    latitude: Double?,
+    longitude: Double?,
+    radius: Float?,
+    onUpdate: (lat: Double, lng: Double, radius: Float) -> Unit,
+    locationProvider: LocationProvider = hiltViewModel<GeofencePickerViewModel>().locationProvider,
+    permissionRequester: PermissionRequester = rememberPermissionRequester()
+) {
+    // Primary "📍 Use current location" button:
+    //   - request ACCESS_FINE_LOCATION
+    //   - call locationProvider.getCurrentLocation()
+    //   - fill in lat/lng on success
+    //   - show friendly error and fall back to manual entry on denial/failure
+    // Manual lat/lng/radius text fields below as fallback
+    // "Set Location" button only enabled when all 3 fields are valid
+}
+```
+Note: don't put `LocationProvider` directly in the composable — extract a ViewModel or use Hilt's `hiltViewModel()` pattern. Or use `LocalContext.current` to get a Hilt-injected instance through `EntryPointAccessors`.
+
+**4. `WifiSsidPicker.kt`** — same pattern, for Wi-Fi:
+```kotlin
+@Composable
+fun WifiSsidPicker(
+    currentSsid: String?,
+    onUpdate: (String) -> Unit,
+    wifiScanner: WifiScanner = …,
+    permissionRequester: PermissionRequester = rememberPermissionRequester()
+) {
+    // Primary "📡 Scan for networks" button:
+    //   - request ACCESS_FINE_LOCATION (required for scan results on Android 9+)
+    //   - call wifiScanner.scanForSsids()
+    //   - display tappable list of detected SSIDs
+    //   - graceful "throttled, try again later" message if scan returns failure
+    // Manual SSID text input below as fallback (for hidden SSIDs)
+}
+```
+
+**5. `DataSourceModule.kt`** — add provides:
+```kotlin
+@Provides @Singleton
+fun provideLocationProvider(@ApplicationContext context: Context): LocationProvider = LocationProvider(context)
+@Provides @Singleton
+fun provideWifiScanner(@ApplicationContext context: Context): WifiScanner = WifiScanner(context)
+```
+
+**6. Wire pickers into call sites:**
+- `DetectionSetupStep.kt:81-88` — replace the SSID `OutlinedTextField` with `WifiSsidPicker`.
+- `DetectionSetupStep.kt:102-157` — replace `GeofenceInputSection` with `GeofencePicker`.
+- `GeofenceSheet.kt:82-103` — replace inline lat/lng fields with `GeofencePicker`.
+- `WifiConnectedSheet.kt:73-82` — replace SSID text field with `WifiSsidPicker`.
+- `WifiScanSheet.kt:73-82` — same.
+
+#### Acceptance Criteria
+- [ ] `LocationProvider` and `WifiScanner` data sources exist and have unit tests.
+- [ ] `GeofencePicker` composable exists and is used in 2 places.
+- [ ] `WifiSsidPicker` composable exists and is used in 3 places.
+- [ ] Tapping "Use current location" requests ACCESS_FINE_LOCATION; if granted, fills in lat/lng.
+- [ ] Tapping "Scan for networks" requests ACCESS_FINE_LOCATION; if granted, performs a scan and displays a tappable list of detected SSIDs.
+- [ ] Permission denial falls back gracefully to manual entry with a brief explainer message.
+- [ ] Wi-Fi scan throttling produces a "try again later" message rather than an indefinite spinner.
+- [ ] Manual entry still works as the fallback in both pickers.
+- [ ] `./gradlew testDebugUnitTest` passes — including the new tests and all existing tests.
+- [ ] No new dependencies added — `play-services-location` is already in the version catalog from TASK-009.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.data.datasource.*"
+./gradlew assembleDebug
+```
+
+---
+
 ## Phase 5: Release Validation
 
 ### TASK-021: Release Smoke Test Suite

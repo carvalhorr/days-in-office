@@ -420,6 +420,16 @@ SETTINGS        /settings
 
 ## 10. UI/UX Conventions
 
+### Visual source of truth — `prototype/index.html`
+
+The canonical visual specification for every screen, layout, copy string, and interaction is the file `prototype/index.html` in the repository root. It is a single-page interactive HTML/CSS prototype covering all four app screens (onboarding, dashboard, calendar, settings) plus all bottom sheets and pickers. Open it in a browser to see exact spacing, typography weights, label wording, button states, and transitions.
+
+**Implementing agents for any UI task (TASK-011 through TASK-020) must open `prototype/index.html` and match its visual structure as closely as Compose allows.** When the prototype and this architecture document conflict on visual detail, the prototype wins. When they conflict on architectural shape (package structure, ViewModel responsibilities, navigation graph), this document wins.
+
+The prototype is **not** a behavioral spec — it doesn't define ViewModel logic, repository wiring, or persistence semantics. Those remain governed by the rest of this document. The prototype defines *what the user sees*; the architecture defines *what the app does*.
+
+### Design system
+
 - **Design system:** Material 3 (Material You)
 - **Theme:** Dynamic color where available, fallback to brand colors (Blue 600 primary)
 - **Color coding for days:**

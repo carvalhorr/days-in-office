@@ -75,6 +75,28 @@ trap release_lock EXIT INT TERM
 
 acquire_lock
 
+# Pre-flight: for cloud tools, verify the API is reachable and not rate-limited
+# before launching the task loop. Twice in this experiment a run has burned ~80
+# seconds of TOOL_ERROR retries on the first task because Claude's rate window
+# was exhausted; the canary catches that in ~5 s with a clean error.
+if [[ "$TOOL" == "claude" ]]; then
+  echo "  Pre-flight: Claude credit canary ..."
+  if ! bash "$SCRIPTS_DIR/check_claude_credit.sh" "$MODEL_OLLAMA_ID"; then
+    CANARY_RC=$?
+    echo "" >&2
+    echo "ERROR: Claude credit canary failed (rc=$CANARY_RC)." >&2
+    case $CANARY_RC in
+      3) echo "  Rate-limited or quota exhausted. Wait for the rate window to reset, then re-run." >&2 ;;
+      2) echo "  Canary budget too low — bug, raise CLAUDE_CANARY_BUDGET and re-run." >&2 ;;
+      *) echo "  Generic canary failure (network / auth / unexpected). See output above." >&2 ;;
+    esac
+    echo "" >&2
+    echo "Aborting before any tasks are attempted to avoid wasting retry budget." >&2
+    exit $CANARY_RC
+  fi
+fi
+
+
 # ── Logging ─────────────────────────────────────────────────────────────────
 exec > >(tee -a "$RUN_LOG") 2>&1
 echo "════════════════════════════════════════════════════════"

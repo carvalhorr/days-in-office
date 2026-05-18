@@ -73,6 +73,37 @@ release_lock() {
 }
 trap release_lock EXIT INT TERM
 
+# wait_for_claude_credit: poll the canary until it returns OK (0) or we hit
+# the max-wait cap. Returns 0 on credit restored, non-zero on cap reached.
+# Used by the per-attempt rate-limit handler in the task loop so that a
+# rate-limit window doesn't burn the orchestrator's retry budget.
+wait_for_claude_credit() {
+  local interval="${CLAUDE_RATELIMIT_POLL_INTERVAL:-300}"   # 5 min between polls
+  local max_wait="${CLAUDE_RATELIMIT_MAX_WAIT:-43200}"      # 12 h cap
+  local start now waited canary_rc
+  start=$(date +%s)
+  while true; do
+    sleep "$interval"
+    now=$(date +%s)
+    waited=$((now - start))
+    if (( waited >= max_wait )); then
+      echo "  ERROR: still rate-limited after ${max_wait}s (${max_wait}/3600 = $((max_wait/3600))h). Giving up." >&2
+      return 1
+    fi
+    canary_rc=0
+    bash "$SCRIPTS_DIR/check_claude_credit.sh" "$MODEL_OLLAMA_ID" >/dev/null 2>&1 || canary_rc=$?
+    if [[ $canary_rc -eq 0 ]]; then
+      echo "  Credit restored after $((waited/60))m $((waited%60))s."
+      return 0
+    fi
+    if [[ $canary_rc -ne 3 ]]; then
+      # Non-rate-limit canary failure (network, auth, etc.) — surface it.
+      echo "  WARN: canary returned non-rate-limit error (rc=$canary_rc) during wait. Treating as transient and continuing to poll." >&2
+    fi
+    echo "  Still rate-limited at $(date '+%H:%M:%S') (waited $((waited/60))m, next check in ${interval}s)"
+  done
+}
+
 acquire_lock
 
 # Pre-flight: for cloud tools, verify the API is reachable and not rate-limited
@@ -277,9 +308,34 @@ for TASK_ID in $TASK_IDS; do
     # (cost/token telemetry); merged into the attempt record below if present.
     export ATTEMPT_USAGE_DIR="$RESULTS_DIR/$TASK_ID"
     export ATTEMPT_NUMBER="$ATTEMPT"
-    echo "  Invoking $TOOL with model $MODEL_OLLAMA_ID ..."
-    TOOL_EXIT=0
-    bash "$SCRIPTS_DIR/run_${TOOL}.sh" "$PROMPT_FILE" "$RUN_DIR" "$MODEL_OLLAMA_ID" "$SCOPE_FILE_LIST" || TOOL_EXIT=$?
+    # Tool invocation wrapped in a credit-aware retry: if the tool errors AND
+    # the canary confirms rate-limit exhaustion, wait for the rate window to
+    # reset and re-invoke without counting this as a real failed attempt.
+    # This handles the mid-run rate-limit-cascade pattern we saw twice in
+    # earlier experiment runs (10 attempts × ~85s of TOOL_ERROR wasted before
+    # the orchestrator gave up on a task it could have completed an hour later).
+    while true; do
+      echo "  Invoking $TOOL with model $MODEL_OLLAMA_ID ..."
+      TOOL_EXIT=0
+      bash "$SCRIPTS_DIR/run_${TOOL}.sh" "$PROMPT_FILE" "$RUN_DIR" "$MODEL_OLLAMA_ID" "$SCOPE_FILE_LIST" || TOOL_EXIT=$?
+      # Only do the rate-limit check for claude, and only on non-zero non-timeout exits.
+      if [[ "$TOOL" == "claude" && $TOOL_EXIT -ne 0 && $TOOL_EXIT -ne 124 ]]; then
+        echo "  Tool errored (exit $TOOL_EXIT) — checking if API is rate-limited ..."
+        CANARY_RC=0
+        bash "$SCRIPTS_DIR/check_claude_credit.sh" "$MODEL_OLLAMA_ID" >/dev/null 2>&1 || CANARY_RC=$?
+        if [[ $CANARY_RC -eq 3 ]]; then
+          echo "  ⏸  Rate-limit detected. Pausing this attempt; will retry when credit returns."
+          if wait_for_claude_credit; then
+            echo "  ▶  Resuming attempt $ATTEMPT."
+            continue   # re-invoke tool with same prompt; same ATTEMPT number
+          else
+            echo "  WARN: credit-wait exceeded the cap. Treating as a regular TOOL_ERROR." >&2
+            break
+          fi
+        fi
+      fi
+      break   # success or non-rate-limit failure — fall through to normal handling
+    done
     rm -f "$PROMPT_FILE"
 
     # Pick up tool-specific usage telemetry (Claude writes cost/tokens here).

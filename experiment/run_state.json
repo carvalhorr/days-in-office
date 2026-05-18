@@ -1,0 +1,14 @@
+{
+  "status": "complete",
+  "tool": "aider",
+  "model_short": "devstral",
+  "model_ollama_id": "devstral:latest",
+  "current_task": "",
+  "current_task_start": "2026-05-18T14:11:45",
+  "tasks_done": 0,
+  "tasks_failed": 1,
+  "tasks_total": 11,
+  "last_updated": "2026-05-18T14:56:15",
+  "intervention_message": "",
+  "pause_requested": false
+}

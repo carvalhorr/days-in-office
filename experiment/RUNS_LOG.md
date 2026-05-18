@@ -47,6 +47,11 @@ Treat as a separate piece of work. Don't re-attempt openhands runs against the c
 
 ### Orchestrator
 
+- **Detect Claude CLI rate-limit / quota exhaustion as a non-retryable error and pause the run instead of burning all 10 attempts.** Confirmed on 2026-05-18: claude × sonnet-4-6 Phase 4 run sailed through TASK-011 to TASK-018 (8/8 first-try, ~80 min total) then hit the rate limit on TASK-019. All 10 retry attempts produced `TOOL_ERROR (exit 1)` in ~83s each (835s total wasted), with no transcript output. Downstream TASK-020 and TASK-021 were then skipped. This is the same failure pattern observed on the 2026-05-17 run's TASK-021 attempts 6-10 — now confirmed to be rate-limit-related rather than per-prompt fragility.
+  - **Fix:** in `run_claude.sh` or `run_experiment.sh`, treat exit code 1 with empty session/transcript as a special "rate limited" signal. Instead of consuming a retry, touch `experiment/PAUSE` and exit cleanly so the operator can resume after the rate window resets.
+  - **Even simpler interim mitigation:** if attempt N exits with code 1 within < 30s and produced no session.json, abort that task's retry loop immediately and move on (or pause). Currently the orchestrator happily retries 9 more times producing identical instant failures.
+  - **Bonus:** capture `attempt*_session.json` size / content even on failure so we can distinguish "model failed mid-conversation" from "CLI failed before starting".
+
 - **Pause granularity is per-task, not per-attempt.** `run_experiment.sh` only checks `experiment/PAUSE` between tasks. Touching the PAUSE file mid-task still lets the current task burn through up to 10 attempts before stopping — costs real money on cloud runs and hours on local runs. Move the pause check inside the attempt loop (after the QA verdict is recorded but before the next attempt builds its prompt) so an operator can halt within minutes.
 
 ### Prompt templates — pending for next run
@@ -88,6 +93,13 @@ Treat as a separate piece of work. Don't re-attempt openhands runs against the c
 - **Auto-refresh fights the scroll position.** Polling re-renders the whole content panel, which snaps the viewport back to the top every refresh. Impossible to read an attempt while the page is live. Fix options: (a) replace `innerHTML = ...` re-render with targeted DOM diff / incremental append so untouched nodes stay put, or (b) preserve `window.scrollY` (and the scroll position of any open attempt) across refreshes.
 - **Missing timing data.** Add: (1) run start time at the top of the page; (2) per-attempt elapsed time on each attempt card (start → end, or start → now if in flight). The data is already in `run.json` (`start_time`, `end_time`, `duration_seconds`) — just isn't surfaced.
 - **Tasks/attempts don't appear without a manual refresh.** New attempts written to disk during a run aren't reliably picked up by the poll loop. Either the poll interval is too long, the request is cached, or the JSON read happens before the orchestrator's atomic-write completes. Investigate: confirm the fetch URL has cache-busting (`?t=${Date.now()}`), shorten the poll interval to ~2s, and check whether `viewer.py` re-reads `run.json` on every request or caches.
+- **Format durations as `hh:mm:ss` instead of raw seconds everywhere they're displayed.** Currently the viewer, `run.log`, and `check_progress.sh` show things like `12665s` or `4405s` which require mental arithmetic to interpret as 3h31m or 1h13m. Apply a uniform formatter (`hh:mm:ss`, or `Hh Mm` if cleaner) to:
+  - `viewer.html` — per-task and per-attempt durations
+  - `experiment/scripts/run_experiment.sh` — the `✓ TASK-XXX: DONE (Ns, N attempt(s))` lines
+  - `experiment/scripts/check_progress.sh` — task durations in the summary
+  - `experiment/scripts/generate_report.py` — final report tables
+  - The "Detailed Analysis" tables in `RUNS_LOG.md` (manual; not auto-generated)
+  Keep `run.json`'s `duration_seconds` as a raw integer — format only at display time. Reusable helper: `python3 -c "import datetime; print(str(datetime.timedelta(seconds=N)))"` produces `hh:mm:ss`; bash equivalent: `printf '%02d:%02d:%02d' $((N/3600)) $(((N/60)%60)) $((N%60))`.
 
 ---
 

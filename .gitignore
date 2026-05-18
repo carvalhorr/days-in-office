@@ -1,1 +1,26 @@
+# Experiment run directories — each has its own git repo
+runs/
+
+# GPU lock file — ephemeral, must never be committed
+experiment/.lock
+
+# Raw logs — too large to track; only run.json is tracked
+experiment/results/**/*.log
+
+# macOS
+.DS_Store
+
+# Claude Code local state
+.claude/
+
+# IDE
+.idea/
+*.iml
+
+# Android build outputs (if any tooling generates them in root)
+build/
+.gradle/
+local.properties
+
+# Aider local state
 .aider*

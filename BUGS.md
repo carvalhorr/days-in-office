@@ -464,6 +464,175 @@ The ViewModel does NOT block confirmed re-writes — it would happily update the
 
 ---
 
+## BUG-008: Home tab does nothing after opening Settings via the gear icon
+**Found:** 2026-05-19 — **Status:** OPEN — **Severity:** Medium
+
+**Observed behaviour (emulator, 2026-05-19):** From Dashboard, tap the gear icon in the top-right to open Settings. While on Settings, tap the **Home** tab in the bottom navigation bar. Nothing happens — the user remains on Settings with no working way back to Dashboard short of system back.
+
+**Note vs BUG-001:** BUG-001 was triaged 2026-05-18 with an assumption that "tapping the Dashboard tab returns to Dashboard" worked as a mitigation. That assumption is wrong — see this bug. BUG-001 has already been actioned (fix landed) with the "back arrow in Settings TopAppBar" route. This bug captures the remaining underlying nav-stack issue that the back-arrow fix sidestepped rather than resolved.
+
+**Suspected cause:** `app/navigation/DaysInOfficeNavHost.kt:47-49` — the gear icon does a plain `navController.navigate(Destination.Settings.route)` push, placing Settings on top of `[Dashboard]`. The bottom-nav `onClick` in `app/navigation/BottomNavBar.kt:32-40` uses `popUpTo(graph.startDestinationId) { saveState = true }` + `launchSingleTop = true` + `restoreState = true`. With Dashboard *already* on the back stack (start destination, just covered by Settings), Nav-Compose appears to treat the navigate-to-Dashboard as a no-op rather than popping Settings. Final root cause to be confirmed during the fix task.
+
+**Desired fix direction (user, 2026-05-19):** Do **not** add or rely on a back button in Settings. Instead, ensure the Home tab in the bottom navigation always returns the user to Dashboard from any other destination — including when Settings was opened via the gear icon.
+
+**Fix scope (likely — to be confirmed during implementation):** Make the gear icon's `onNavigateToSettings` in `DaysInOfficeNavHost.kt:48` use the same tab-switch nav options as `BottomNavBar.kt:33-39`:
+```kotlin
+navController.navigate(Destination.Settings.route) {
+    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
+}
+```
+This keeps the back stack as `[Dashboard]` with Settings as the active destination, so tapping Home in the bottom nav restores Dashboard via the normal tab-switch path. If after this change the Home tab still fails to navigate when no drill-in push is on the stack, dig deeper — the bug then lies in the bottom nav's `popUpTo`/`launchSingleTop` interaction with the current destination.
+
+**Acceptance criteria:**
+- From Dashboard, tap gear → Settings opens
+- From Settings (opened via gear), tap Home tab → returns to Dashboard with state preserved
+- From Settings (opened via gear), tap Calendar tab → goes to Calendar; from there tap Home → returns to Dashboard
+- No back arrow / `navigationIcon` is added to `SettingsScreen.kt`'s TopAppBar as part of this fix
+- Compose UI test: Dashboard → (gear) → Settings → (Home tab) → Dashboard, assert final destination is Dashboard
+
+**Related:** BUG-001 (same surface; fixed via back-arrow route which left this underlying nav-stack issue unaddressed).
+
+---
+
+## BUG-009: Empty white strip above the TopAppBar title
+**Found:** 2026-05-19 — **Status:** OPEN — **Severity:** Low
+
+**Observed behaviour (emulator, 2026-05-19):** A blank/white horizontal strip is visible at the top of the app, above the screen title in the `TopAppBar`. The title sits lower than expected, with an empty gap between it and the very top edge of the screen. Reads as a status-bar-inset handling issue, not a deliberate design space.
+
+**Where observed:** Dashboard (Settings/Calendar to be re-checked — likely the same since they share the `TopAppBar` pattern). The prototype (`prototype/index.html`) has no such gap; the title sits flush under the status bar with the app's primary color extending behind the status bar.
+
+**Suspected cause (not confirmed — for the fix task to verify):**
+- `app/MainActivity.kt:31` calls `enableEdgeToEdge()`, which makes the app draw under the system bars. Combined with the `Scaffold` propagating `paddingValues` (which includes the status-bar inset) to the `NavHost`, each screen's content — including the `TopAppBar` — is pushed below the status bar. The `TopAppBar` then *also* applies its own window insets internally (Material 3 `TopAppBar` consumes status-bar insets by default), double-counting the inset and producing the visible blank strip.
+- Likely fix: either (a) stop forwarding the status-bar portion of `paddingValues` into screens that already have a `TopAppBar` (let the `TopAppBar` own the inset), or (b) pass `windowInsets = WindowInsets(0)` to each `TopAppBar` and let the Scaffold's `paddingValues` handle it once. Pick whichever matches the prototype's "color behind the status bar" expectation — option (a) is the usual Material 3 idiom.
+
+**Files likely touched:**
+- `app/MainActivity.kt` — `Scaffold` content padding handling
+- `app/navigation/DaysInOfficeNavHost.kt` — modifier propagation
+- Each screen's `Scaffold` / `TopAppBar` — Dashboard, Settings, Calendar
+
+**Acceptance criteria:**
+- On Dashboard, Settings, and Calendar: no blank strip above the title; the title sits directly under the status bar
+- Status-bar area is filled with the app's primary/surface color (matching the prototype), not white
+- Visual regression check via screenshot test or manual capture against `experiment/audit-shots/`
+
+**Related:** BUG-002 (overall prototype divergence audit) — this is a layout/inset issue distinct from the BUG-002 sub-bugs but in the same "match the prototype" family.
+
+---
+
+## BUG-010: Dashboard check-in buttons (Office / Remote) do nothing when tapped
+**Found:** 2026-05-19 — **Status:** OPEN — **Severity:** High
+
+**Observed behaviour (emulator, 2026-05-19):** On the Dashboard, tapping the **Office** check-in button or the **Remote** check-in button produces no visible change — no selected state, no stats update, no compliance ring change. The buttons appear to be a no-op end-to-end from the user's perspective.
+
+**Wiring observed in code (looks correct at every layer — actual failure is elsewhere):**
+- `feature/dashboard/ui/QuickCheckInButton.kt:35,43` → both Office button paths call `onCheckInOffice`
+- `feature/dashboard/ui/QuickCheckInButton.kt:54,62` → both Remote button paths call `onCheckInRemote`
+- `feature/dashboard/ui/DashboardScreen.kt:101-102` → wires the lambdas to `viewModel::checkInAsOffice` / `viewModel::checkInAsRemote`
+- `feature/dashboard/DashboardViewModel.kt:83-93` → calls `recordOfficeDayUseCase(LocalDate.now(), DetectionMethod.MANUAL)` / `recordRemoteDayUseCase(LocalDate.now())` inside `viewModelScope.launch`
+
+So the click → lambda → ViewModel → use case chain is wired. "Nothing happens" must be one of:
+1. **Use case throws and the exception is swallowed by `viewModelScope.launch`** (no `try/catch`, no `CoroutineExceptionHandler`, no error UI). The user sees no toast, no log surface — the click silently fails. Likely candidates: a Room write failing because no schema migration / no inserted prerequisite row, or an invariant guard in the use case rejecting the write (cf. BUG-007's "overwrite confirmed" guard pattern).
+2. **Use case succeeds but the Dashboard `Flow` doesn't re-emit.** The Dashboard `uiState` is built from a `Flow` (line ~75 in `DashboardViewModel.kt`); if the upstream repo `Flow` isn't observing the changed `DayRecord` (e.g. one-shot read instead of Room `Flow<DayRecord>`), the UI never updates. User reads this as "nothing happens".
+3. **Use case succeeds and state updates, but the visual selected-state of the buttons isn't bound to `today`'s record** — i.e. the click works, the data updates, the stats strip updates, but the *button itself* doesn't show "Office: selected", so the user perceives no feedback. This is the failure mode adjacent to BUG-007's "visual selected-state pass" note.
+
+**Diagnostic suggestions for the fix task:**
+- Add a temporary `Log.d` in `checkInAsOffice` / `checkInAsRemote` to confirm the lambda fires
+- Wrap the use case call in `runCatching` and surface failures via a `Snackbar` or error state — even if the long-term fix is something else, never swallow these silently
+- Inspect Room: after a tap, `adb shell run-as ... cat .../databases/days_in_office.db` (or run a unit test) to confirm whether the `DayRecord` row is being written
+- Check the repo's `observeDay(date)` / `observeAllDays()` returns a Room `Flow`, not a one-shot `suspend fun`
+
+**Likely files:**
+- `feature/dashboard/DashboardViewModel.kt` — error handling around `viewModelScope.launch`
+- `core/domain/usecase/RecordOfficeDayUseCase.kt`, `RecordRemoteDayUseCase.kt` — possible silent rejection
+- `core/data/repository/DayRecordRepositoryImpl.kt` (or equivalent) — Flow vs suspend, write path
+- `feature/dashboard/ui/QuickCheckInButton.kt` — visual selected-state bound to today's record type
+
+**Acceptance criteria:**
+- Tapping Office on a clean day records a `DayRecord(date=today, type=OFFICE, confirmedByUser=true)` and the Dashboard reflects it (stats strip count goes up, compliance ring updates, the Office button shows as selected)
+- Tapping Remote on a clean day does the equivalent for REMOTE
+- If the use case fails for any reason, a user-visible error appears (Snackbar) — no silent swallowing
+- Unit test on `DashboardViewModel` covering both check-in paths, asserting the repo write occurs and the state flow emits
+- Compose UI test: tap Office → assert stats strip Office count incremented
+
+**Related:**
+- BUG-007 (can't change today's check-in *after the first* selection) — different symptom (works once then breaks) vs. this bug (doesn't appear to work at all). May share a root cause if the use case is silently rejecting writes; verify before deduping.
+- BUG-002f (check-in card wording) and BUG-002 (general visual selected-state pass) — cosmetic neighbours; do not conflate.
+
+---
+
+## BUG-011: App crashes when opening Wi-Fi (Connected / Scan) or Geofencing settings — shared `@HiltViewModel` factory misuse in pickers
+**Found:** 2026-05-19 — **Status:** OPEN — **Severity:** High
+
+**Observed behaviour (emulator, 2026-05-19):** From Settings, tapping any of the following rows crashes the app:
+- **Wi-Fi (Connected)** — opens a `ModalBottomSheet` embedding `WifiSsidPicker`
+- **Wi-Fi (Scan)** — same picker
+- **Geofencing** — opens a `ModalBottomSheet` embedding `GeofencePicker`
+
+All three rows crash on the same code path (picker composition), with the same class of failure.
+
+**Confirmed root cause (one bug, two files):**
+
+`feature/shared/ui/WifiSsidPicker.kt:73`:
+```kotlin
+@Composable
+fun WifiSsidPicker(
+    currentSsid: String?,
+    onUpdate: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: WifiSsidPickerViewModel = viewModel()   // ← wrong factory
+)
+```
+
+`feature/shared/ui/GeofencePicker.kt:75`:
+```kotlin
+viewModel: GeofencePickerViewModel = viewModel()       // ← wrong factory, same mistake
+```
+
+Both `WifiSsidPickerViewModel` and `GeofencePickerViewModel` are declared `@HiltViewModel` with injected constructors (`WifiScanner` and `LocationProvider` / equivalent respectively). The plain `viewModel()` call from `androidx.lifecycle.viewmodel.compose` does **not** know about Hilt's factory and falls back to the default factory, which requires a no-arg constructor. The VMs have none, so instantiation throws — almost certainly along the lines of:
+
+```
+java.lang.RuntimeException: Cannot create an instance of class ...PickerViewModel
+  Caused by: java.lang.NoSuchMethodException: ...PickerViewModel.<init> []
+```
+
+The crash fires the first time the bottom sheet's content composes, which is immediately on tap → matches all three observed symptoms.
+
+**Fix scope (two near-identical one-line changes, plus imports):**
+
+```kotlin
+// at top of BOTH WifiSsidPicker.kt AND GeofencePicker.kt
+import androidx.hilt.navigation.compose.hiltViewModel
+
+// in each picker's signature:
+viewModel: WifiSsidPickerViewModel = hiltViewModel()
+viewModel: GeofencePickerViewModel = hiltViewModel()
+```
+
+**Files to change:**
+- `feature/shared/ui/WifiSsidPicker.kt` — replace `viewModel()` with `hiltViewModel()`
+- `feature/shared/ui/GeofencePicker.kt` — same change
+
+**Verification step before fixing:**
+- Capture the actual stack trace from `adb logcat *:E` while reproducing the tap (try one of the Wi-Fi rows and the Geofencing row; expect both traces to be the same class of crash, just naming different VM classes). If the trace matches the `Cannot create an instance` pattern above, ship the two-line fix. If it's something else (e.g. a `SecurityException` from `WifiManager` / `LocationManager` due to a missing manifest permission, or a `NullPointerException` inside the scanner/provider on emulator), update this bug entry with the real trace and rescope.
+
+**Audit step (catch any others):**
+- `grep -rn "viewModel()" --include="*.kt" app/src/main/` and for every match where the target VM is `@HiltViewModel`, switch to `hiltViewModel()`. This avoids surfacing the same bug elsewhere in the future (e.g. if a new picker is added).
+
+**Acceptance criteria:**
+- Tapping Settings → Wi-Fi (Connected) opens the bottom sheet without crashing
+- Tapping Settings → Wi-Fi (Scan) opens the bottom sheet without crashing
+- Tapping Settings → Geofencing opens the bottom sheet without crashing
+- Enabling the relevant switch reveals the picker, and the "Scan for networks" / "Use current location" action either works or fails with a visible message — not a crash
+- Project-wide grep confirms no other `@HiltViewModel` is instantiated via plain `viewModel()`
+- Instrumented Compose UI test (or unit-test pattern) that asserts each picker composes without throwing
+
+**Related:**
+- BUG-003 / BUG-005 — both call out the picker/scanner pattern as needing an auto-detect implementation. This bug is about the *existing* pickers crashing on entry, independent of those feature gaps. Fix BUG-011 first; BUG-003/005 are layered on top.
+
+---
+
 ## Triage summary
 
 | Bug | Status | Severity | Notes |
@@ -475,6 +644,10 @@ The ViewModel does NOT block confirmed re-writes — it would happily update the
 | BUG-005 | TRIAGED | Medium | New `WifiScanner` + `WifiSsidPicker`; bundle with BUG-003 fix |
 | BUG-006 | TRIAGED → DECIDE | Low | Feature gap, not bug. Lean won't-do unless demand emerges |
 | BUG-007 | TRIAGED | Medium | One-line change in `QuickCheckInButton` + visual selected-state pass |
+| BUG-008 | OPEN | Medium | Home tab is a no-op when Settings opened via gear; fix likely = tab-switch nav options on gear-icon push. No back arrow. |
+| BUG-009 | OPEN | Low | Blank white strip above TopAppBar title; suspected double-application of status-bar inset (edge-to-edge + Scaffold padding + TopAppBar own insets). |
+| BUG-010 | OPEN | **High** | Dashboard Office/Remote check-in buttons appear to do nothing. Wiring looks correct — suspect silent use-case failure swallowed by `viewModelScope.launch`, non-reactive repo Flow, or unbound visual selected-state. Verify vs BUG-007 before deduping. |
+| BUG-011 | OPEN | **High** | App crashes when opening Wi-Fi (Connected/Scan) **and** Geofencing settings. Confirmed root cause: both `WifiSsidPicker.kt:73` and `GeofencePicker.kt:75` use `viewModel()` instead of `hiltViewModel()` for a `@HiltViewModel`. Two-line fix + project-wide audit. |
 
 **Recommended grouping for task filing:**
 

@@ -1382,6 +1382,217 @@ fun provideWifiScanner(@ApplicationContext context: Context): WifiScanner = Wifi
 
 ---
 
+### TASK-027: Fix BUG-008 — Home tab is a no-op when Settings is opened via gear icon
+**Status:** NOT_STARTED
+**Dependencies:** TASK-012
+**Complexity:** Simple
+
+#### Context
+When the user opens Settings via the ⚙️ gear icon on the Dashboard, tapping the **Home** tab in the bottom navigation does nothing. The user is stranded on Settings. See `BUGS.md` BUG-008 for the full repro. The `MainFlowSmokeTest.c02_homeTabReturnsToDashboardAfterGearIconSettings` test is the regression guard and currently fails.
+
+**Confirmed root cause:** `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/navigation/DaysInOfficeNavHost.kt:47-49` — the gear icon does a plain `navController.navigate(Destination.Settings.route)` push, placing Settings on top of `[Dashboard]`. The bottom-nav `onClick` in `app/navigation/BottomNavBar.kt:32-40` then uses `popUpTo(graph.startDestinationId) { saveState = true }` + `launchSingleTop = true` + `restoreState = true`. With Dashboard already on the back stack covered by Settings, Nav-Compose treats the navigate-to-Dashboard as a no-op rather than popping Settings.
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/navigation/DaysInOfficeNavHost.kt`
+- `CLAUDE.md` (root + run-repo copy) — remove the `c02_...` row from "Known-Failing UI Smoke Tests" once green.
+
+#### Implementation Details
+Change the gear icon's `onNavigateToSettings` lambda to use the same tab-switch nav options as `BottomNavBar.kt`:
+
+```kotlin
+DashboardScreen(
+    onNavigateToSettings = {
+        navController.navigate(Destination.Settings.route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    },
+    viewModel = viewModel
+)
+```
+
+Settings becomes the active destination, the back stack stays as `[Dashboard]`, and tapping the Home tab via the normal tab-switch path restores Dashboard with its saved state.
+
+Do **not** revert the existing back arrow added by TASK-023's BUG-001 fix — leave that affordance alone.
+
+#### Acceptance Criteria
+- [ ] From Dashboard, tapping ⚙️ navigates to Settings.
+- [ ] From Settings (opened via gear), tapping the Home tab returns to Dashboard with state preserved.
+- [ ] After the round trip, the back stack contains only the start destination.
+- [ ] The existing BUG-001 back arrow continues to work.
+- [ ] `MainFlowSmokeTest.c02_homeTabReturnsToDashboardAfterGearIconSettings` passes; its row is removed from `Known-Failing UI Smoke Tests` in CLAUDE.md (both copies).
+
+#### QA Verification Steps
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.carvalhorr.daysInOffice.smoke.ui.MainFlowSmokeTest
+# Expected: c02_homeTabReturnsToDashboardAfterGearIconSettings PASSES.
+```
+
+---
+
+### TASK-028: Fix BUG-009 — empty white strip above the TopAppBar title
+**Status:** NOT_STARTED
+**Dependencies:** TASK-012
+**Complexity:** Simple
+
+#### Context
+A blank/white horizontal strip is visible at the top of the app, above the screen title in the `TopAppBar`. The title sits lower than expected, with an empty gap to the top edge of the screen. The prototype (`prototype/index.html`) has no such gap. See `BUGS.md` BUG-009 for the full report.
+
+**Suspected root cause:** `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/MainActivity.kt:31` calls `enableEdgeToEdge()`, which makes the app draw under the system bars. Combined with the `Scaffold` propagating `paddingValues` (which includes the status-bar inset) to the `NavHost`, each screen's content — including the `TopAppBar` — is pushed below the status bar. Material 3 `TopAppBar` also applies its own window insets internally, producing a double-applied status-bar inset and the visible blank strip.
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/dashboard/ui/DashboardScreen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/calendar/ui/CalendarScreen.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/SettingsScreen.kt`
+
+#### Implementation Details
+In each screen's `TopAppBar` invocation, set `windowInsets = WindowInsets(0)`:
+
+```kotlin
+TopAppBar(
+    title = { Text("Days in Office") },
+    actions = { /* ... */ },
+    windowInsets = WindowInsets(0)
+)
+```
+
+The Scaffold's `paddingValues` already carries the status-bar inset and is forwarded to the screen content; the `TopAppBar` taking zero insets prevents the double-application. The status-bar background remains the app's surface color via the Scaffold's standard window-inset handling.
+
+Verify the same fix works on Calendar and Settings — apply it consistently.
+
+#### Acceptance Criteria
+- [ ] On Dashboard, Settings, and Calendar: no blank strip above the title; the title sits directly under the status bar.
+- [ ] The status-bar area is filled with the app's primary/surface color, matching the prototype.
+- [ ] `./gradlew lintDebug` does not introduce new warnings.
+- [ ] All existing UI tests still pass.
+
+#### QA Verification Steps
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug
+# Visual verification on emulator — capture a screenshot of each of the
+# three screens and compare against prototype/index.html. No blank strip
+# above the title; status-bar area is the app's surface color.
+```
+
+---
+
+### TASK-029: Fix BUG-010 — Dashboard check-in buttons produce no visible state change
+**Status:** NOT_STARTED
+**Dependencies:** TASK-005, TASK-014
+**Complexity:** Medium
+
+#### Context
+On the Dashboard, tapping the **Office** or **Remote** check-in button writes the record to the DB but produces no visible UI change — no stats update, no selected state, no compliance-ring change. See `BUGS.md` BUG-010 for the full report.
+
+**Useful observation from `MainFlowSmokeTest`:** the `d02_calendarDayDetailSheetOpens` test successfully finds today's cell with a content description after a Dashboard check-in — meaning the use-case write does succeed and the record IS persisted. So the failure is not "click does nothing"; it's that the Dashboard UI itself doesn't re-emit / re-render after the write. The root cause is one of:
+
+1. The repo `Flow` powering `DashboardViewModel.state` is not a Room `Flow<...>` (e.g. it's a one-shot `suspend fun` collected once), so the new record never reaches the VM.
+2. The button's visual selected state is not bound to today's `DayRecord` in `QuickCheckInButton.kt`.
+
+#### Scope — Files to Investigate (then Modify as needed)
+- `core/data/repository/DayRecordRepositoryImpl.kt` — verify the read path returns Room `Flow`.
+- `feature/dashboard/DashboardViewModel.kt` — verify `state` is built from that Flow with `stateIn(...)`.
+- `feature/dashboard/ui/QuickCheckInButton.kt` — verify the visual selected state binds to today's record type.
+- `feature/dashboard/ui/DashboardScreen.kt` — verify the stats strip + ring re-render on state change.
+
+#### Implementation Details
+1. Confirm the read path is reactive — `DayRecordDao.observe...(): Flow<...>`, mapped to domain models, consumed by the VM via `stateIn`. If it's a one-shot suspend, change to a Flow-returning query.
+2. If the click handler succeeds but no Flow emission lands, add a temporary `Log.d` in the VM's state collector and in the use case to pinpoint where the data stops flowing; remove the logs before commit.
+3. Once the Flow is reactive, wire the `QuickCheckInButton` visual state so the active button (Office vs Remote) reflects today's `DayRecord.status`. Today both variants paint the same regardless of today's record.
+4. Wrap the use-case call in `runCatching` inside the VM so any future use-case failure surfaces as a user-visible Snackbar rather than silently swallowed by `viewModelScope.launch`.
+
+#### Acceptance Criteria
+- [ ] Tapping Office on a clean day immediately updates the stats-strip Office count and the compliance ring.
+- [ ] Tapping Remote on a clean day does the equivalent for REMOTE.
+- [ ] The Office and Remote buttons visually indicate which is selected for today after a tap.
+- [ ] If a use-case throws, a user-visible Snackbar appears (no silent swallowing).
+- [ ] Unit test on `DashboardViewModel` covering both check-in paths, asserting the state Flow emits a new value after each call.
+- [ ] Existing `MainFlowSmokeTest.b01_...` and `.b02_...` continue to pass.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.dashboard.DashboardViewModelTest"
+./gradlew :app:assembleDebug
+./gradlew :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.carvalhorr.daysInOffice.smoke.ui.MainFlowSmokeTest
+```
+
+---
+
+### TASK-030: Fix BUG-011 — Wi-Fi and Geofence pickers crash via `@HiltViewModel` factory misuse
+**Status:** NOT_STARTED
+**Dependencies:** TASK-016, TASK-026
+**Complexity:** Simple
+
+#### Context
+Opening any of Settings → Wi-Fi (connected), Settings → Wi-Fi (scan only), or Settings → Geofencing, then toggling the row's Enable switch, crashes the app with:
+
+```
+java.lang.RuntimeException: Cannot create an instance of class
+  com.carvalhorr.daysInOffice.feature.shared.ui.WifiSsidPickerViewModel
+  (or .GeofencePickerViewModel)
+  at androidx.lifecycle.viewmodel.internal.JvmViewModelProviders.createViewModel
+```
+
+See `BUGS.md` BUG-011. The `MainFlowSmokeTest.e02_*`, `.e03_*`, `.e04_*` tests capture this exact stack and are the regression guards.
+
+**Confirmed root cause (one bug, two files):**
+- `feature/shared/ui/WifiSsidPicker.kt:73` uses `viewModel: WifiSsidPickerViewModel = viewModel()`.
+- `feature/shared/ui/GeofencePicker.kt:75` uses `viewModel: GeofencePickerViewModel = viewModel()`.
+
+Both VMs are declared `@HiltViewModel` with `@Inject` constructors needing injected scanners/providers. The plain `viewModel()` factory from `androidx.lifecycle.viewmodel.compose` doesn't know about Hilt and falls back to the default factory, which requires a no-arg constructor.
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/shared/ui/WifiSsidPicker.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/shared/ui/GeofencePicker.kt`
+- `CLAUDE.md` (root + run-repo copy) — remove `e02_*`, `e03_*`, `e04_*` rows from "Known-Failing UI Smoke Tests".
+
+#### Implementation Details
+In each picker file, swap the factory:
+
+```kotlin
+// Remove:
+import androidx.lifecycle.viewmodel.compose.viewModel
+// Add:
+import androidx.hilt.navigation.compose.hiltViewModel
+
+// In the composable signature, change:
+viewModel: WifiSsidPickerViewModel = viewModel()
+// To:
+viewModel: WifiSsidPickerViewModel = hiltViewModel()
+```
+
+Same change in `GeofencePicker.kt` with `GeofencePickerViewModel`.
+
+Then audit the project for any other place a `@HiltViewModel` is instantiated via plain `viewModel()`:
+
+```bash
+grep -rn "= viewModel()" --include="*.kt" app/src/main/
+```
+
+For each match where the target VM is `@HiltViewModel`, switch to `hiltViewModel()`. This prevents the same bug appearing elsewhere.
+
+#### Acceptance Criteria
+- [ ] Settings → Wi-Fi (connected) → toggle Enable opens the picker without crashing.
+- [ ] Settings → Wi-Fi (scan only) → toggle Enable opens the picker without crashing.
+- [ ] Settings → Geofencing → toggle Enable opens the picker without crashing.
+- [ ] Project-wide grep confirms no other `@HiltViewModel` is instantiated via plain `viewModel()`.
+- [ ] `MainFlowSmokeTest.e02_*`, `.e03_*`, `.e04_*` all pass and are removed from the `Known-Failing UI Smoke Tests` table in CLAUDE.md.
+
+#### QA Verification Steps
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.carvalhorr.daysInOffice.smoke.ui.MainFlowSmokeTest
+# Expected: e02_*, e03_*, e04_* all PASS.
+```
+
+---
+
 ## Phase 5: Release Validation
 
 ### TASK-021: Release Smoke Test Suite

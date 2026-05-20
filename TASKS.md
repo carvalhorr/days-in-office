@@ -1876,6 +1876,147 @@ TASK-022 was the BUG-004 fix and was marked DONE, but device testing 2026-05-20 
 
 ---
 
+### TASK-038: Fix BUG-019 — wire up detection infrastructure at app start
+**Status:** NOT_STARTED
+**Dependencies:** TASK-009, TASK-010, TASK-016
+**Complexity:** Medium
+
+#### Context
+`GeofenceDetector.setupGeofence()` and `DayDetectionWorker.schedule(workManager)` are defined and unit-tested but never invoked from anywhere in `app/src/main/`. Verifiable with:
+
+```bash
+grep -rn "DayDetectionWorker.schedule\|setupGeofence()" app/src/main/kotlin/
+# only the function DEFINITIONS appear — no call sites.
+```
+
+Consequence: detection silently does nothing on a real device. See `BUGS.md` BUG-019. Note: this task wires up the *infrastructure*; the actual DB-write side effect is gated on TASK-039 (the confirmation flow) — see Acceptance Criteria below.
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/app/DaysInOfficeApp.kt` — schedule the worker; call `setupGeofence()` at app start if persisted state has geofencing enabled.
+- `feature/settings/SettingsViewModel.kt` — register/unregister geofence on Settings save.
+- `core/detection/detector/GeofenceDetector.kt` — add `removeGeofence()`.
+- `app/src/main/AndroidManifest.xml` — declare `ACCESS_BACKGROUND_LOCATION` (API 29+).
+- `core/permissions/AppPermission.kt` — add `BACKGROUND_LOCATION` entry.
+- `feature/shared/ui/GeofencePicker.kt` (or onboarding step) — escalate to background-location permission once foreground is granted.
+
+#### Implementation Details
+1. In `DaysInOfficeApp.onCreate()`, after Hilt initialises, schedule the worker (idempotent thanks to `ExistingPeriodicWorkPolicy.KEEP`):
+   ```kotlin
+   DayDetectionWorker.schedule(WorkManager.getInstance(this))
+   ```
+2. Also in `onCreate()`, read the persisted detection config; if geofencing is enabled and lat/lng/radius are present, register the geofence via `GeofenceDetector.setupGeofence()`. Inject the detector through Hilt — do NOT inline the GeofencingClient calls in `App`.
+3. In `SettingsViewModel.updateGeofence(enabled, lat, lng, radius)`:
+   - After persisting, if `enabled == true` → call `setupGeofence()`.
+   - If `enabled == false` (or transitioning from true → false) → call `removeGeofence()`.
+4. Add `GeofenceDetector.removeGeofence()`:
+   ```kotlin
+   fun removeGeofence() {
+       geofencingClient.removeGeofences(listOf("OFFICE_GEOFENCE"))
+   }
+   ```
+5. Background location permission flow:
+   - Declare `ACCESS_BACKGROUND_LOCATION` in `AndroidManifest.xml` (with `tools:targetApi="29"` if needed).
+   - Request it via `permissionRequester` AFTER foreground location is granted. Android requires the foreground-first flow.
+   - If the user denies background, the geofence still registers but transitions only fire when the app is foregrounded — degrade gracefully with a visible explainer in the picker UI.
+
+#### Acceptance Criteria
+- [ ] After app start: `adb shell dumpsys jobscheduler | grep -i day_detection` shows the worker scheduled.
+- [ ] After saving geofence in Settings with geofencing enabled: `adb shell dumpsys location | grep -i OFFICE_GEOFENCE` shows the geofence registered.
+- [ ] Disabling geofencing in Settings removes the geofence registration.
+- [ ] Background location permission is requested after foreground location is granted; the explainer is user-visible if denied.
+- [ ] Worker remains scheduled across app restarts (verified by re-running the `dumpsys` check after kill + relaunch).
+- [ ] **No `DayRecord` is written by detection until TASK-039 lands** — this task only wires up the signal pipeline (broadcast → DataStore `geofenceInside` flag). Today's record is not modified by detection until the confirmation flow exists.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.detection.*"
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug
+```
+
+---
+
+### TASK-039: Fix BUG-020 — detection requires user confirmation before writing today's record (notification + tap-to-confirm)
+**Status:** NOT_STARTED
+**Dependencies:** TASK-018, TASK-038
+**Complexity:** Medium-Complex
+
+#### Context
+Per `BUGS.md` BUG-020, the user reports a real false-positive class: walking past the office (e.g., taking a kid to school) currently would fire ENTER → silently write OFFICE → overwrite a Remote day they intended. The fix is to make **detection suggestive, not authoritative**: detection fires a notification; nothing is written to the DB until the user confirms.
+
+This task strengthens Key Invariant #1. The old form ("never overwrite `confirmedByUser=true` with automated detection") becomes:
+
+> **Invariant #1 (new):** Automated detection never writes a `DayRecord` directly. It can only fire a confirmation prompt; only an explicit user action (in-app tap or notification action) writes a `DayRecord`.
+
+#### Scope — Files to Create
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/notification/DetectionPromptNotificationWorker.kt` (or extend `DailyCheckInNotificationWorker`).
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/notification/DetectionPromptActionReceiver.kt` — handles the notification's Yes / No action intents.
+
+#### Scope — Files to Modify
+- `core/detection/DetectionOrchestrator.kt` — **remove** the `DayRecord(confirmedByUser=false)` write path. Replace with "fire detection prompt notification if today not already confirmed and detector not yet suppressed today".
+- `core/data/datasource/PreferencesDataSource.kt` — add a `Map<DetectorId, LocalDate>` of "last dismissed at" so a "No, dismiss" suppresses that detector for the rest of today, surviving process death.
+- `notification/NotificationScheduler.kt` — create channel `DETECTION_PROMPT` (medium priority).
+- `core/domain/model/DetectionMethod.kt` — add `MANUAL_CONFIRMED_FROM_DETECTION` enum value, so the resulting record carries provenance distinct from cold-manual taps and from automated writes.
+- `AndroidManifest.xml` — declare `DetectionPromptActionReceiver`.
+- `feature/dashboard/ui/DashboardScreen.kt` — if launched with `Intent.extras` containing `"show_detection_prompt"`, render an in-app Yes/No card matching the notification (fallback for users who don't engage notification actions).
+- `ARCHITECTURE.md` — update §5 / §10 (whichever covers the detection contract) to reflect the new invariant.
+- **`CLAUDE.md`** Key Invariants section — Invariant #1 already updated as part of this task's commit (see "Implementation Details" step 1).
+
+#### Implementation Details
+
+1. **Update the invariant text in `CLAUDE.md` first** (commit message: `docs(architecture): tighten Invariant #1 — detection no longer writes records directly` BEFORE the code commit). New text:
+   > Automated detection never writes a `DayRecord` directly. It can only fire a confirmation prompt; only an explicit user action (in-app tap or notification action) writes a `DayRecord`.
+
+2. **Remove the direct write from `DetectionOrchestrator`.** All `repository.upsertDayRecord(...)` invocations from the orchestrator's automated path are deleted. The orchestrator's new contract: read detector signals → check "should we prompt?" → fire prompt or do nothing. **Manual paths in `DashboardViewModel` / `CalendarViewModel` still write directly** — they ARE explicit user action.
+
+3. **"Should we prompt?" gating:**
+   - Read today's `DayRecord` via the repo Flow. If `confirmedByUser == true` (any status), DO NOT prompt — the user has already decided.
+   - Check the per-detector suppression map: if this detector was dismissed for today already, DO NOT prompt.
+   - Otherwise, fire the notification.
+
+4. **Notification:**
+   - Channel: `DETECTION_PROMPT` (created in `NotificationScheduler.initialize()`).
+   - Title: **"Are you at the office?"**
+   - Body: **"We detected you may be at the office. Mark today as Office day?"**
+   - Actions:
+     - **[Yes, Office]** → `PendingIntent` to `DetectionPromptActionReceiver` with `action="CONFIRM_OFFICE"`.
+     - **[No, dismiss]** → `PendingIntent` with `action="DISMISS"`.
+   - Tapping the notification body (not an action) → `PendingIntent` to `MainActivity` with `extra="show_detection_prompt"`.
+
+5. **`DetectionPromptActionReceiver.onReceive`:**
+   - `CONFIRM_OFFICE` → invoke `RecordOfficeDayUseCase(LocalDate.now(), DetectionMethod.MANUAL_CONFIRMED_FROM_DETECTION)` with `confirmedByUser = true`. Cancel the notification.
+   - `DISMISS` → write to suppression map (`PreferencesDataSource.markDetectorDismissed(detectorId, LocalDate.now())`). Cancel the notification. No DB change.
+
+6. **Dashboard in-app fallback:** when `MainActivity.onCreate` (or `onNewIntent`) sees the `show_detection_prompt` extra, navigate to Dashboard and render an in-app card with the same Yes / No options, wired to the same use cases / suppression writes.
+
+7. **POST_NOTIFICATIONS permission** flow (API 33+) already exists for `DailyCheckInNotificationWorker`. Reuse the same request path.
+
+8. **Architecture update:** update `ARCHITECTURE.md`'s detection section to reflect the new contract. Mark as a `docs(architecture):` commit preceding the code commit.
+
+#### Acceptance Criteria
+- [ ] CLAUDE.md and ARCHITECTURE.md updated with the new Invariant #1 text BEFORE the code commit.
+- [ ] `DetectionOrchestrator` no longer contains any direct `upsertDayRecord(...)` call on the automated path.
+- [ ] Walking into the geofenced area (with no record today) triggers a notification within the next worker run.
+- [ ] Tapping **"Yes, Office"** writes today's `DayRecord` as OFFICE with `confirmedByUser = true`. Dashboard reflects the change.
+- [ ] Tapping **"No, dismiss"** results in NO DB write. Subsequent detection events from the same detector today do not fire further notifications.
+- [ ] Tapping the notification body (not an action) opens Dashboard with the in-app prompt card showing the same Yes / No options.
+- [ ] If today's record already has `confirmedByUser = true` (any status), no notification fires regardless of detector activity.
+- [ ] **Drive-by test:** enter and exit geofence without tapping any notification action → no `DayRecord` is written for today.
+- [ ] Wi-Fi and geofence each get independent suppression — dismissing one doesn't affect the other.
+- [ ] `DETECTION_PROMPT` notification channel exists with a user-clear name like "Office detection prompts".
+- [ ] Unit tests on `DetectionOrchestrator`: positive signal + already-confirmed-record → no notification; positive signal + clean state → notification fired; positive signal + dismissed-today → no notification.
+- [ ] Unit test on `DetectionPromptActionReceiver`: CONFIRM_OFFICE writes record; DISMISS writes suppression.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.detection.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.notification.*"
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug
+```
+
+---
+
 ## Phase 5: Release Validation
 
 ### TASK-021: Release Smoke Test Suite

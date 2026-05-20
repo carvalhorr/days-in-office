@@ -125,7 +125,7 @@ The following files are pre-seeded by the experiment framework and must not be m
 
 ## Key Invariants (Do Not Violate)
 
-1. Never overwrite a `confirmedByUser = true` record with automated detection.
+1. Automated detection never writes a `DayRecord` directly. Detection can only fire a confirmation prompt (notification or in-app card); only an explicit user action — an in-app tap or a notification action — writes a `DayRecord`. (Tightened 2026-05-20 via BUG-020 / TASK-039; subsumes the earlier "never overwrite `confirmedByUser=true`" form.)
 2. Weekends are always excluded from mandate calculations.
 3. `ComplianceResult.daysNeededToComply` is never negative.
 4. One `DayRecord` per calendar date.

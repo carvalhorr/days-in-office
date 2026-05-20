@@ -859,6 +859,112 @@ Expected: marking a working day as PTO should reduce `totalWorkingDays` by 1, re
 
 ---
 
+## BUG-019: Detection infrastructure is never wired up at app start — geofence not registered, worker not scheduled
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** **High** (silent feature failure)
+
+**Observed (device, 2026-05-20):** The user sets a geofence in Settings → Geofencing, enables detection, walks into the office, and waits. Expected: today's `DayRecord` is automatically marked OFFICE (or a confirmation prompt appears). Actual: nothing happens — no record change, no notification, the user is stranded thinking the feature is silently broken.
+
+**Confirmed root cause (greppable):**
+
+```bash
+$ grep -rn "DayDetectionWorker.schedule\|setupGeofence()" app/src/main/kotlin/
+# only the function DEFINITIONS appear — no call sites.
+```
+
+Two pieces of infrastructure exist but are never invoked at app start:
+
+1. **`GeofenceDetector.setupGeofence()`** registers a `Geofence` (enter + exit transitions) via Google's `GeofencingClient`. Without this call, Android Location services never start watching for the configured region, so `GeofenceBroadcastReceiver.onReceive()` cannot fire. No `geofenceInside` writes ever happen.
+
+2. **`DayDetectionWorker.schedule(workManager)`** enqueues the periodic worker that aggregates detector signals into a `DayRecord` every 2h on weekdays 07:00–19:00. Without this call, even if a geofence broadcast somehow fired, no worker ever runs to act on it.
+
+Both functions exist, both are tested in isolation (per existing unit tests), neither is reachable from any user action.
+
+**Where the calls should live:**
+
+- `setupGeofence()` should be called when:
+  - The user saves Settings → Geofencing with detection enabled (write-side trigger). `SettingsViewModel.updateGeofence(...)` is the natural hook.
+  - The app starts up if the user already has geofencing enabled from a previous session. `DaysInOfficeApp.onCreate()` is the natural hook for this.
+  - It should be **un-registered** when the user disables geofencing, to avoid a stale Geofence pinging an old coordinate.
+
+- `DayDetectionWorker.schedule(workManager)` should be called from `DaysInOfficeApp.onCreate()` after the WorkManager configuration is set up. `WorkManager.enqueueUniquePeriodicWork(...)` with `ExistingPeriodicWorkPolicy.KEEP` makes this safe to call every launch.
+
+**Likely files to modify:**
+- `app/DaysInOfficeApp.kt` — call `DayDetectionWorker.schedule(WorkManager.getInstance(this))` in `onCreate()`. If geofencing is enabled in persisted state, also call `GeofenceDetector.setupGeofence()` (likely via a `DetectionWiringInitializer` class to keep `App` thin).
+- `feature/settings/SettingsViewModel.kt` — in `updateGeofence(enabled = true, ...)`, additionally invoke `GeofenceDetector.setupGeofence()`. In `updateGeofence(enabled = false, ...)`, invoke `GeofenceDetector.removeGeofence()` (add that method to mirror setup).
+- `core/detection/detector/GeofenceDetector.kt` — add `removeGeofence()` that calls `geofencingClient.removeGeofences(...)`.
+
+**Required manifest permission (verify):**
+- `ACCESS_BACKGROUND_LOCATION` (API 29+) is required for geofence transitions to fire when the app is backgrounded. If only `ACCESS_FINE_LOCATION` is granted, the geofence registers but never fires events from background. The permission flow must escalate to background after the user grants foreground.
+
+**Acceptance criteria:**
+- App start: `DayDetectionWorker` is scheduled (verify via `adb shell dumpsys jobscheduler | grep day_detection`).
+- App start, with geofencing previously enabled: the configured geofence is registered (verify via `adb logcat -s GeofenceHardwareImpl` or similar).
+- User saves Settings → Geofencing → enables: the geofence is registered immediately (no app restart required).
+- User disables geofencing: the geofence is removed.
+- Walking into the geofenced area triggers `GeofenceBroadcastReceiver.onReceive()` → `geofenceInside = true` lands in DataStore.
+- Next worker run (at most 2h later) reads `geofenceInside`, writes today's `DayRecord` as OFFICE, Dashboard updates.
+- For testing: a debug-only "Run detection now" button or `adb shell cmd jobscheduler run` recipe in the runbook so we don't have to wait 2h to verify.
+- Background location permission flow handled — request it after foreground location is granted.
+
+**Related:**
+- **TASK-009 / TASK-010** (original run) — created the detector + worker classes but never wired them up. The orchestrator marked those tasks DONE because per-task QA was "unit test passes" — the integration gap was invisible to that signal.
+- **BUG-020** (filed below) — adds a user-visible notification for the silent-detection case.
+
+---
+
+## BUG-020: Detection must require user confirmation before writing today's record — no silent auto-mark
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** Medium (data-integrity / user-trust)
+
+**Observed (device, 2026-05-20):** The user expects a notification asking "You're at the office — mark today as Office?" when detection fires, NOT a silent auto-mark. The current architecture writes a `DayRecord(... confirmedByUser=false ...)` immediately on detection — which has a concrete user-facing failure mode (see "drive-by" scenario below).
+
+**Why confirmation is required, not just an undo affordance** (user direction 2026-05-20):
+
+> "There is a possibility that I pass by the office and the detection would trigger and replace a remote day as in office. For this reason I want to have a confirmation for when office is detected."
+
+The user is identifying a real false-positive class:
+- **Drive-by:** dropping the kid off at school passes within geofence radius → ENTER transition fires → today silently becomes OFFICE. User was actually remote.
+- **Brief Wi-Fi catch:** phone roams near the office briefly and picks up the SSID → silent OFFICE write. Same problem from a different detector.
+- **Already-decided remote day:** user manually marked today REMOTE (`confirmedByUser=true`). Key Invariant #1 protects this from automated overwrite, BUT only if it was explicitly confirmed. If the user *hadn't* yet marked the day (the typical morning case), drive-by would silently land OFFICE.
+
+**Required behaviour:** detection fires a notification; nothing is written to the DB until the user confirms. The `DayRecord(confirmedByUser=false)` write path is removed for detection events — replaced with "fire notification, await user choice".
+
+**Design:**
+
+1. Detector emits a positive signal (geofence enter, Wi-Fi SSID match, scan match).
+2. `DetectionOrchestrator` checks: does today already have a `confirmedByUser=true` record? If yes, ignore the detection event entirely (Invariant #1 already covers this; no notification either, to avoid noise).
+3. Otherwise, fire a notification: **"Are you at the office? Mark today as Office day?"** with two actions:
+   - **"Yes, Office"** → writes `DayRecord(status=OFFICE, confirmedByUser=true)` (user explicitly confirmed, so it's a manual decision per Invariant #1).
+   - **"No, dismiss"** → no write. Detection events for the rest of the day for the same detector are suppressed (one prompt per detector per day).
+4. Tapping the notification body (not an action button) opens the Dashboard with the prompt rendered in-app (same Yes / No choices). For users who don't engage with the notification system actions.
+5. If the user takes no action and the notification times out / is swept, no write happens. The day remains UNKNOWN.
+
+This makes detection **suggestive**, not **authoritative** — the user is always the sole authority for what today is. Matches Invariant #1 ("never overwrite confirmedByUser=true with automated detection") in spirit: extends the invariant to "never write at all without user confirmation".
+
+**Files:**
+- `core/detection/DetectionOrchestrator.kt` — remove the `DayRecord(confirmedByUser=false)` write path. Replace with a "fire confirmation prompt" path. Add suppression state (per-detector per-day) so the user isn't pinged repeatedly.
+- `notification/DetectionPromptNotificationWorker.kt` (new) — sibling of `DailyCheckInNotificationWorker`. Posts the confirmation notification with two `PendingIntent` actions.
+- `notification/DetectionPromptActionReceiver.kt` (new) — `BroadcastReceiver` that handles "Yes, Office" / "No, dismiss" notification actions; calls `RecordOfficeDayUseCase` on Yes.
+- `core/detection/DetectionConfig.kt` (or wherever notification suppression lives) — track which detectors have already prompted for today.
+- `AndroidManifest.xml` — POST_NOTIFICATIONS (API 33+) flow already in place per existing notification work; ensure the new channel is created.
+- `feature/dashboard/DashboardScreen.kt` — when launched from a detection notification (via Intent extra), show the same Yes / No prompt in-app rather than just landing on Dashboard.
+
+**Acceptance criteria:**
+- Walking into the geofenced area triggers a single notification within the next worker run.
+- Tapping "Yes, Office" → today's record becomes OFFICE with `confirmedByUser=true`. Dashboard reflects the change.
+- Tapping "No, dismiss" → no write happens; today's record stays as it was. No further prompts from the same detector for the rest of the day.
+- If today already has `confirmedByUser=true` (any status), no notification fires — the user already decided.
+- **Drive-by test:** walk into geofence then walk out without confirming. Verify no `DayRecord` was written.
+- **Already-remote test:** mark today REMOTE manually, then walk into geofence. Verify no notification fires and no write happens.
+- A dedicated notification channel `DETECTION_PROMPT` exists so the user can mute this without muting daily check-in reminders.
+- Smoke-test addition: simulate a positive detector signal in test, assert no DB write happens until the confirmation action fires.
+
+**Related:**
+- **BUG-019** — prerequisite; without detection actually wiring up, this UX is never exercised.
+- **Key Invariant #1** in CLAUDE.md — should be strengthened to: *"automated detection never writes a `DayRecord` directly; it only fires a confirmation notification."* Worth a follow-up `docs(architecture)` update.
+- **BUG-007 / BUG-017** — user-driven re-selection (Office ↔ Remote ↔ PTO) must still work from Dashboard regardless of confirmation flow. Unrelated to this bug but in the same data-authority neighbourhood.
+
+---
+
 ## Triage summary
 
 | Bug | Status | Severity | Notes |
@@ -881,6 +987,8 @@ Expected: marking a working day as PTO should reduce `totalWorkingDays` by 1, re
 | BUG-016 | OPEN | Low (UX) — but probably the real BUG-012 root cause | Geofence picker has a redundant "Set Location" button. Likely explanation: picker holds its own local state, only calls `onUpdate` when that button is tapped, so Save persists stale draft. Remove the button; route every change through `onUpdate(...)`. |
 | BUG-017 | OPEN | Medium | Dashboard Office button still can't override prior Remote (TASK-024 regression of BUG-007). Plus rename "🏢 Check in" → "🏢 Office" for symmetry with Remote. Two-part fix: use-case re-selection guards + label rename. |
 | BUG-018 | OPEN | **High** | Marking a day PTO from Calendar still doesn't reduce Dashboard's working-days denominator (TASK-022 regression of BUG-004). Check whether buildResult filter actually landed; if yes, the regression is in repo-Flow reactivity (BUG-010 family). |
+| BUG-019 | OPEN | **High** | Detection infrastructure never wired up at app start — `setupGeofence()` and `DayDetectionWorker.schedule(...)` are defined but never called. Plumbing exists, on/off switch was never flipped. Likely from TASK-009/010 integration gap. |
+| BUG-020 | OPEN | Medium | Detection must REQUIRE confirmation before writing today's record. User flagged drive-by false positives (passing the office en route elsewhere → silent OFFICE write replaces correct REMOTE). Detection becomes suggestive (notification only); nothing written until user confirms. Tightens Invariant #1. |
 
 **Recommended grouping for task filing:**
 

@@ -1593,6 +1593,153 @@ For each match where the target VM is `@HiltViewModel`, switch to `hiltViewModel
 
 ---
 
+### TASK-031: Fix BUG-012 — geofence coordinates do not persist between sessions
+**Status:** NOT_STARTED
+**Dependencies:** TASK-026
+**Complexity:** Simple
+
+#### Context
+Setting geofence lat/lng/radius in Settings → Geofencing and saving does not retain the values across sessions. On re-opening the app the sheet's lat/lng/radius are blank, so the user cannot test geofence detection on a physical device. See `BUGS.md` BUG-012 for the report.
+
+Likely one of:
+- The write path does not call DataStore for all three numeric fields (e.g. only the enabled flag persists; or `null` parameters are skipped).
+- The read path does not seed `DetectionConfig.geofenceLatitude / geofenceLongitude / geofenceRadiusMeters` from DataStore on app start, so the sheet's `currentLat / currentLng / currentRadius` props arrive null.
+- The write payload uses wrong field names or swallowed parse exceptions.
+
+#### Scope — Files to Investigate / Modify
+- `feature/settings/SettingsViewModel.kt` — `updateGeofence(enabled, lat, lng, radius)` and the upstream `state` Flow.
+- `core/data/repository/DetectionConfigRepositoryImpl.kt` (or equivalent) — DataStore read/write of the three fields.
+- `core/data/datasource/DetectionConfigDataSource.kt` (if it exists) — DataStore key definitions.
+- `feature/settings/ui/sheets/GeofenceSheet.kt` — confirm `currentLat / currentLng / currentRadius` flow in from props, not from local defaults.
+
+#### Implementation Details
+1. Verify write: invoking `updateGeofence(enabled=true, lat=37.7749, lng=-122.4194, radius=100)` results in all four values landing in DataStore (dump via `adb shell run-as <pkg> cat .../datastore/...` if needed).
+2. Verify read: `getDetectionConfig(): Flow<DetectionConfig>` emits the same lat/lng/radius after restart. Mismatched keys between writer and reader are a common culprit — confirm a single set of `PreferencesKey` constants is shared.
+3. Add a unit test on the repository round-trip: write all three fields, read them back, assert equality.
+
+#### Acceptance Criteria
+- [ ] Set geofence in Settings → Save → kill and re-launch the app → reopen Settings → Geofencing — lat/lng/radius are populated with the saved values.
+- [ ] Unit test `DetectionConfigRepositoryImplTest.geofenceRoundTrip` writes and reads back all three fields.
+- [ ] On second launch, `DetectionOrchestrator`'s geofence detector uses the persisted values (verified via log or a second unit test on the orchestrator).
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.data.repository.*"
+./gradlew :app:assembleDebug
+```
+
+---
+
+### TASK-032: Fix BUG-013 — Wi-Fi scan does not list any networks
+**Status:** NOT_STARTED
+**Dependencies:** TASK-026
+**Complexity:** Medium
+
+#### Context
+In Settings → Wi-Fi (scan only) → Enable → tap "Scan for networks", no list of SSIDs appears. Same likely applies to the Wi-Fi (connected) sheet's picker. See `BUGS.md` BUG-013.
+
+Most likely causes (one or more):
+1. Missing `NEARBY_WIFI_DEVICES` permission on Android 13+ — without it, `WifiManager.startScan()` succeeds with an empty list.
+2. Android's scan throttle (4 calls / 120s in foreground) returns false from `startScan()` after repeated taps — silently treated as an empty result by the UI.
+3. The empty-state render ("No networks detected.") is too subtle and the user reads it as "nothing happened".
+
+#### Scope — Files to Investigate / Modify
+- `app/src/main/AndroidManifest.xml` — confirm `CHANGE_WIFI_STATE`, `ACCESS_WIFI_STATE`, `NEARBY_WIFI_DEVICES` (with `tools:targetApi="33"` and `usesPermissionFlags="neverForLocation"` per Android 13 requirements).
+- `core/data/datasource/WifiScanner.kt` — scan invocation, throttle detection, result mapping.
+- `feature/shared/ui/WifiSsidPicker.kt` — request `NEARBY_WIFI_DEVICES` alongside `FINE_LOCATION` on API 33+; render error/empty states more clearly.
+- `core/permissions/AppPermission.kt` — add `NEARBY_WIFI_DEVICES` if missing.
+
+#### Implementation Details
+1. Add the manifest permission (with the `neverForLocation` flag to avoid the location-permission requirement on Android 13+).
+2. Update `permissionRequester.request(...)` in the picker to include `NEARBY_WIFI_DEVICES` on API 33+, falling back to `ACCESS_FINE_LOCATION` on earlier versions.
+3. In `WifiScanner.scanForSsids()`, detect `startScan()` returning false and surface as `Result.failure(ScanThrottledException("Try again in a moment"))` (or similar). Detect SecurityException as `Result.failure(PermissionMissingException(...))`.
+4. In `WifiSsidPicker`, render error states with an explicit message and a "Retry" button. The empty-state copy should remain but be visually distinct (e.g. larger font, retry affordance).
+5. Add a unit test for `WifiScanner` with a mocked `WifiManager`: cover success, empty, throttled, no-permission cases.
+
+#### Acceptance Criteria
+- [ ] On a real device with Wi-Fi enabled and at least one SSID in range, tapping Scan produces a tappable list.
+- [ ] If scan is throttled, the user sees "Try again in a moment" rather than an empty list.
+- [ ] If permissions are denied, the user sees a clear message and the manual SSID input remains usable.
+- [ ] `WifiScannerTest` covers all four state branches.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.data.datasource.WifiScannerTest"
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug
+```
+
+---
+
+### TASK-033: Remove BUG-014 — delete unspecified "Export CSV" feature from Settings → Data
+**Status:** NOT_STARTED
+**Dependencies:** TASK-016
+**Complexity:** Simple
+
+#### Context
+Settings → Data → "Export CSV" (or similar) is not in the product spec and confuses the layout. Remove it. See `BUGS.md` BUG-014. Pure deletion; no replacement.
+
+#### Scope — Files to Modify
+- `feature/settings/ui/SettingsScreen.kt` — remove the Export row from `DataSection`.
+- `feature/settings/ui/sheets/` — remove any Export-related bottom sheet (e.g. `ExportSheet.kt`) if exclusively used here.
+- `feature/settings/SettingsViewModel.kt` — remove the `exportData()` (or similar) function and its imports.
+- `core/domain/usecase/ExportDataUseCase.kt` (if it exists) — remove file and its tests.
+- `core/data/repository/...` — if a repository method is used exclusively by the removed use case, remove. Otherwise leave (harmless).
+- `prototype/index.html` — remove the corresponding entry to keep the prototype aligned with the emulator (per the "prototype is visual source of truth" rule).
+
+#### Implementation Details
+Pure deletion. Confirm no compile errors after removal. Leave `DayRecordDao` read queries alone — they're harmless.
+
+#### Acceptance Criteria
+- [ ] "Export" / "Export CSV" row no longer appears in Settings.
+- [ ] `./gradlew :app:assembleDebug` clean.
+- [ ] `./gradlew testDebugUnitTest` clean.
+- [ ] `./gradlew lintDebug` does not surface new warnings.
+- [ ] `prototype/index.html` no longer shows the Export entry.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug
+```
+
+---
+
+### TASK-034: Fix BUG-015 — rename and re-section "Reset onboarding"
+**Status:** NOT_STARTED
+**Dependencies:** TASK-016, TASK-033
+**Complexity:** Simple
+
+#### Context
+The "🔁 Reset onboarding" row sits in Settings → Data with a label that sounds destructive ("will it wipe my data?"). It's grouped with the (now removed) Export feature, which makes it read as a data operation. It isn't — it's a re-run-the-setup-wizard action. See `BUGS.md` BUG-015.
+
+#### Scope — Files to Modify
+- `feature/settings/ui/SettingsScreen.kt` — move the row from `DataSection` to a new `SetupSection`; relabel.
+- `prototype/index.html` — mirror the section + label change.
+
+#### Implementation Details
+1. Create a new "Setup" section in `SettingsScreen` (between Calendar and Data, or wherever fits the flow).
+2. Move the Reset row from `DataSection` into the new `SetupSection`.
+3. Rename label to **"Re-run setup wizard"** with sub-text **"Walks you through the initial setup again. Your data is kept."** — wire the sub-text into the existing `SettingsRow` (extend the component if needed, or use a custom row variant).
+4. Optional but recommended: wrap `onResetOnboarding` in an AlertDialog confirmation ("This will return you to the setup wizard. Your data is kept. Continue?") to remove any remaining doubt.
+5. Keep the existing `SettingsViewModel.resetOnboarding()` behavior unchanged — it should still flip `onboardingComplete = false` only.
+
+#### Acceptance Criteria
+- [ ] "Re-run setup wizard" appears in its own "Setup" section, with the descriptive sub-text.
+- [ ] No mention of "reset" / "data" in the row.
+- [ ] Tapping the row (and confirming, if dialog added) returns the user to the onboarding wizard on next launch; no `DayRecord` rows are deleted.
+- [ ] Prototype matches.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.settings.*"
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug
+```
+
+---
+
 ## Phase 5: Release Validation
 
 ### TASK-021: Release Smoke Test Suite

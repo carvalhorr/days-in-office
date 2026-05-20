@@ -142,10 +142,6 @@ is exactly this list (or a subset).
 
 | Test method | Guarding |
 |---|---|
-| `c02_homeTabReturnsToDashboardAfterGearIconSettings` | BUG-008 |
-| `e02_settingsWifiConnectedRowOpensAndEnablesWithoutCrash` | BUG-011 |
-| `e03_settingsWifiScanRowOpensAndEnablesWithoutCrash` | BUG-011 |
-| `e04_settingsGeofencingRowOpensAndEnablesWithoutCrash` | BUG-011 |
 
 **When you fix a bug:** remove its row(s) above as part of the fix commit. If
 you fix a bug whose regression guard isn't in the suite yet, add the guard at

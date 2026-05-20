@@ -633,6 +633,113 @@ viewModel: GeofencePickerViewModel = hiltViewModel()
 
 ---
 
+## BUG-012: Geofence coordinates do not persist between sessions
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** Medium
+
+**Observed (device, 2026-05-20):** In Settings → Geofencing, set latitude / longitude / radius (manually or via auto-detect) and Save. Close and re-open the app, return to Settings → Geofencing — the values are blank again. As a consequence, the user cannot validate geofence-based detection on a physical device because the coordinates are lost the moment they're needed.
+
+**Suspected scope:** One or more of:
+- `SettingsViewModel.updateGeofence(enabled, lat, lng, radius)` calls a repository method that doesn't actually write all four fields to DataStore (e.g. the enabled flag persists but lat/lng/radius don't).
+- The write path is correct but the read path doesn't seed `DetectionConfig.geofenceLatitude / geofenceLongitude / geofenceRadiusMeters` from DataStore on app start, so the sheet's `currentLat` / `currentLng` / `currentRadius` come in null.
+- The Save handler in `GeofenceSheet.kt` constructs the save payload with the wrong field names (e.g. raw Strings vs Doubles, swallowed parse exception).
+
+**Files to inspect:**
+- `feature/settings/ui/sheets/GeofenceSheet.kt` — `onSave` payload construction
+- `feature/settings/SettingsViewModel.kt` — `updateGeofence(...)` function
+- `core/data/repository/DetectionConfigRepositoryImpl.kt` (or equivalent) — DataStore read/write of geofence fields
+- The DataStore keys for `geofenceLatitude / geofenceLongitude / geofenceRadiusMeters`
+
+**Diagnostic suggestion:** After Save, dump DataStore from adb (`adb shell run-as <pkg> cat .../datastore/...`) to confirm whether the values are on disk. If on disk but not displayed, the read path is broken. If not on disk, the write path is broken.
+
+**Acceptance criteria:**
+- Set geofence in Settings → Save → kill and re-open the app → reopen Settings → Geofencing — lat/lng/radius are populated with the previously saved values.
+- The `DetectionOrchestrator.geofenceDetector` uses the persisted values across process restarts (i.e. detection actually works on the next run).
+- Unit test on the repository round-trip (write then read all three fields).
+
+**Related:** BUG-003 (the feature gap, addressed by TASK-026); BUG-011 (Hilt factory crash blocks reaching this UI on fresh state — must be fixed first to even reproduce BUG-012).
+
+---
+
+## BUG-013: Wi-Fi scan does not list any available networks
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** Medium
+
+**Observed (device, 2026-05-20):** In Settings → Wi-Fi (scan only) → Enable → tap "Scan for networks". The user expects a tappable list of nearby SSIDs per TASK-026's design. Instead, no list appears — either the scan silently returns empty or the result isn't rendered. Same likely true for the Wi-Fi (connected) sheet's picker.
+
+**Most likely causes (one of):**
+1. **Permission missing.** `WifiManager.startScan()` requires `ACCESS_FINE_LOCATION` (runtime, since Android 8/9) plus `CHANGE_WIFI_STATE` (manifest). If the picker requests location permission but Android 13+ also needs `NEARBY_WIFI_DEVICES`, the scan succeeds with an empty list. Verify manifest declarations and the picker's `permissionRequester.request(...)` set.
+2. **Throttling.** Android imposes a 30s rolling cap on `startScan()` calls; in foreground apps that's 4/120s. If the user opened the picker multiple times during testing, subsequent scans return cached empty results without surfacing the throttle error.
+3. **Result-render path silently drops.** `WifiSsidPicker.kt` renders the success state with an empty list as "No networks detected." — which may be what the user sees but interpreted as "nothing happens" because it's small/under-styled.
+
+**Files to inspect:**
+- `AndroidManifest.xml` — confirm `CHANGE_WIFI_STATE`, `ACCESS_WIFI_STATE`, and `NEARBY_WIFI_DEVICES` (API 33+) are declared
+- `core/data/datasource/WifiScanner.kt` — the actual scan invocation + result handling (success vs failure, empty handling, throttle detection)
+- `feature/shared/ui/WifiSsidPicker.kt` — the state-rendering branches
+- Logcat filter: `adb logcat -s WifiScanner WifiManager WifiHal`
+
+**Acceptance criteria:**
+- On a device with Wi-Fi enabled and at least one visible network in range, tapping "Scan for networks" with location permission granted produces a tappable list of SSIDs.
+- If the scan fails (throttle, denied permission, Wi-Fi off), a user-visible explanatory error is shown — not a silent empty state.
+- Manual SSID entry remains available as fallback (already works per TASK-026).
+- The empty state's "No networks detected." text is visually clearer (e.g. larger / centred / with a retry button).
+
+**Related:** BUG-005 (the original feature gap, addressed by TASK-026); BUG-011 (Hilt factory crash blocks reaching the picker until fixed).
+
+---
+
+## BUG-014: Remove "Export data" / "Export CSV" from Settings → Data
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** Low (scope cleanup)
+
+**Observed:** Settings → Data section contains an Export CSV row. The product currently has no requirement for data export — the use case was never specified. The row exists likely because the prototype or an earlier scope draft included it. Remove for now; revisit if and when a real export need surfaces.
+
+**Scope — Files to Modify:**
+- `feature/settings/ui/SettingsScreen.kt` — remove the Export row from `DataSection`.
+- `feature/settings/ui/sheets/` — remove any export-related bottom sheet, if one exists.
+- `feature/settings/SettingsViewModel.kt` — remove the `exportData()` (or similar) function and its dependencies.
+- `core/domain/usecase/ExportDataUseCase.kt` (if it exists) — remove.
+- `core/data/repository/...` — if the repository has an `exportToCsv` method used exclusively by the above, remove. If unused but harmless, optional cleanup.
+- `prototype/index.html` — remove the export entry too so the prototype and emulator stay aligned (per the "prototype is visual source of truth" rule).
+
+**Do not remove:**
+- The underlying `DayRecordDao` read queries — they're harmless and may be useful later.
+- The Reset onboarding row (separate concern, see BUG-015).
+
+**Acceptance criteria:**
+- "Export" / "Export CSV" no longer appears in Settings.
+- No dead code remains referencing the removed feature.
+- Unit/lint passes.
+- Prototype matches the emulator.
+
+---
+
+## BUG-015: "Reset onboarding" row is unclear in label and visually grouped with the (to-be-removed) export feature
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** Low/Medium (UX)
+
+**Observed:** The "🔁 Reset onboarding" row sits in Settings → Data, visually adjacent to the Export CSV row. The user reads them as related actions. Two distinct issues:
+
+(a) **Purpose is not obvious from the label.** From the code (`SettingsViewModel.resetOnboarding()`), it flips `mandateConfig.onboardingComplete = false` so the next app launch lands back on the onboarding wizard. This is intended for "re-run the setup wizard if my config drifted". Nothing about the label "Reset onboarding" communicates that — it sounds destructive (will it wipe my data?).
+
+(b) **Visual grouping is misleading.** Sitting in "Data" alongside Export reads as a data operation. It isn't — it's a setup-flow restart. The grouping needs to change once Export is removed (BUG-014).
+
+**Proposed fix:**
+- Rename to **"Re-run setup wizard"** (or "Restart setup"). Add a sub-label / description: "Walks you through the initial setup again. Your data is kept."
+- Move to its own section, e.g. **"Setup"**, distinct from "Data".
+- Optional: confirmation dialog ("This will return you to the setup wizard. Continue?") to remove the ambiguity around whether data is wiped.
+
+**Files:**
+- `feature/settings/ui/SettingsScreen.kt` — `DataSection` → move the row out into a new `SetupSection` (or rename `DataSection` if it ends up empty after BUG-014).
+- The row's label / description.
+- Optionally: add a confirmation dialog before invoking `onResetOnboarding`.
+- `prototype/index.html` — mirror the section + label change.
+
+**Acceptance criteria:**
+- Row label clearly conveys "go back to the setup wizard, keep my data".
+- Row is in its own section, visually separated from any data-modification actions.
+- The action itself behaves the same (`onboardingComplete = false`; no data loss).
+
+**Related:** BUG-014 (export removal opens up the Data section's layout).
+
+---
+
 ## Triage summary
 
 | Bug | Status | Severity | Notes |
@@ -648,6 +755,10 @@ viewModel: GeofencePickerViewModel = hiltViewModel()
 | BUG-009 | OPEN | Low | Blank white strip above TopAppBar title; suspected double-application of status-bar inset (edge-to-edge + Scaffold padding + TopAppBar own insets). |
 | BUG-010 | OPEN | **High** | Dashboard Office/Remote check-in buttons appear to do nothing. Wiring looks correct — suspect silent use-case failure swallowed by `viewModelScope.launch`, non-reactive repo Flow, or unbound visual selected-state. Verify vs BUG-007 before deduping. |
 | BUG-011 | OPEN | **High** | App crashes when opening Wi-Fi (Connected/Scan) **and** Geofencing settings. Confirmed root cause: both `WifiSsidPicker.kt:73` and `GeofencePicker.kt:75` use `viewModel()` instead of `hiltViewModel()` for a `@HiltViewModel`. Two-line fix + project-wide audit. |
+| BUG-012 | OPEN | Medium | Geofence lat/lng/radius do not persist between sessions. Suspect either write path doesn't hit DataStore for all three fields or read path doesn't seed the sheet's `currentLat/Lng/Radius`. Repository round-trip test would catch. |
+| BUG-013 | OPEN | Medium | Wi-Fi "Scan for networks" produces no list. Suspect missing `NEARBY_WIFI_DEVICES` (API 33+), or throttling, or silent empty-state render. Audit manifest + logcat. |
+| BUG-014 | OPEN | Low | Remove unspecified "Export CSV" row from Settings → Data. No product requirement; revisit later. Delete row + use-case + sheet + prototype entry. |
+| BUG-015 | OPEN | Low/Medium | "Reset onboarding" label is unclear; visually grouped with Export (BUG-014). Rename to "Re-run setup wizard" + move to its own section + clarify "your data is kept". |
 
 **Recommended grouping for task filing:**
 

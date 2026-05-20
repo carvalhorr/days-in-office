@@ -2197,6 +2197,113 @@ This is an investigation task; the modify-list is unknown until diagnosis. Likel
 
 ---
 
+### TASK-043: Fix BUG-023 — instrument detection pipeline, escalate runtime permissions, surface failures user-visibly
+**Status:** NOT_STARTED
+**Dependencies:** TASK-038, TASK-039, TASK-040
+**Complexity:** Medium
+
+#### Context
+Per `BUGS.md` BUG-023: detection produces no notification on a real device, even though `DaysInOfficeApp.onCreate()` schedules the worker, `SettingsViewModel.update*` enqueues a `force_run` one-shot, `DetectionOrchestrator.runDetection()` iterates enabled detectors, and `MainFlowSmokeTest` reports green. Smoke can't reach the runtime/permission/device-state failure modes; we need to instrument the live pipeline so failures stop being silent.
+
+This task is **diagnostic-first**: add visibility, then fix whatever the visibility reveals. The structure mirrors BUG-023's three parts.
+
+#### Scope — Files to Modify
+- `app/DaysInOfficeApp.kt` — escalate runtime permissions (POST_NOTIFICATIONS, BACKGROUND_LOCATION) when needed; log lifecycle events.
+- `feature/settings/SettingsViewModel.kt` — log + emit a one-shot status event the UI can observe.
+- `core/detection/worker/DayDetectionWorker.kt` — log entry, gate decision, orchestrator outcome.
+- `core/detection/DetectionOrchestrator.kt` — log each method's branch decision (skipped because !isAvailable, !isAtOffice, suppressed, or fired).
+- `core/detection/detector/GeofenceDetector.kt` — log registration success/failure (`addGeofences` task completion listeners).
+- `core/detection/receiver/GeofenceBroadcastReceiver.kt` — log every received transition with `geofenceInside` value.
+- `core/detection/detector/WifiConnectedDetector.kt` — log target vs connected SSID and match result.
+- `core/detection/detector/WifiScanDetector.kt` — log scan result count and match.
+- `notification/DetectionPromptNotificationWorker.kt` — log channel creation, post attempt, permission-denied case.
+- `core/di/DetectorModule.kt` — audit `@IntoMap` bindings; ensure every `DetectionMethod` value has a binding.
+- `feature/settings/ui/SettingsScreen.kt` — surface one-shot results (Snackbar) after each Save when a detector was enabled.
+- `feature/settings/ui/sheets/GeofenceSheet.kt` — warning banner if `ACCESS_BACKGROUND_LOCATION` is denied.
+- `CLAUDE.md` (both copies) — add a "Debugging detection on a device" section with the `dumpsys`/`logcat` recipes.
+
+#### Implementation Details
+
+**Part 1 — instrumentation.** Use a single consistent tag throughout so logs filter cleanly:
+
+```kotlin
+private const val TAG = "Detection"
+Log.i(TAG, "DayDetectionWorker.doWork starting (forceRun=$forceRun, shouldRun=$shouldRun)")
+Log.i(TAG, "DetectionOrchestrator: WIFI_CONNECTED skipped because !isAtOffice (target=$target, actual=$actual)")
+```
+
+Required log lines (`adb logcat -s Detection`):
+- `DaysInOfficeApp.onCreate`: "scheduling worker", "calling setupGeofence (shouldActivate=$result)" or "skipping setupGeofence".
+- `SettingsViewModel.enqueueOneShotDetection`: "enqueued one-shot for $methodLabel".
+- `DayDetectionWorker.doWork`: "entry (forceRun=$x, shouldRun=$y)", "calling orchestrator", "orchestrator returned".
+- `DetectionOrchestrator.runDetection`: "entry (date=$today)", "todayConfirmed=$result", per-method line "$method: isAvailable=$a, isAtOffice=$b, suppressed=$c → $action".
+- `GeofenceDetector.setupGeofence`: `geofencingClient.addGeofences(...).addOnSuccessListener { Log.i(TAG, "geofence registered at ($lat,$lng,$radius)") }.addOnFailureListener { Log.w(TAG, "addGeofences failed", it) }`.
+- `GeofenceBroadcastReceiver.onReceive`: "transition=$transition, writing geofenceInside=$value".
+- `WifiConnectedDetector.isAtOffice`: "target=$targetSsid, connected=$connectedSsid, stripped=$stripped, match=$result".
+- `DetectionPromptNotificationWorker.postPromptNotification`: "posting for $method" or "POST_NOTIFICATIONS not granted; aborting".
+
+**Part 2 — surface failures user-visibly.**
+
+- `SettingsViewModel` exposes a `_oneShotResult: MutableSharedFlow<OneShotResult>` (sealed: `NotificationFired`, `NoSignal`, `PermissionMissing(permission)`, `Error(message)`). Emit after the one-shot worker completes (use WorkManager's `getWorkInfoByIdLiveData` or a callback).
+- `SettingsScreen` collects this flow and shows a Snackbar:
+  - `NotificationFired` → "✓ Detection ran. Check the notification."
+  - `NoSignal` → "Detection ran. You're not at the office (no positive signal)."
+  - `PermissionMissing(POST_NOTIFICATIONS)` → "Cannot send notifications. Grant POST_NOTIFICATIONS in Settings." with action.
+  - `Error(msg)` → "Detection failed: $msg"
+- `GeofenceSheet`: if `ACCESS_BACKGROUND_LOCATION` is denied and geofencing is being enabled, show a persistent inline banner: "Background location is not granted. Detection will only work while the app is open. [Grant]".
+
+**Part 3 — fix what the instrumentation reveals.**
+
+- Audit `DetectorModule` — for every `DetectionMethod` value that should produce a detector (WIFI_CONNECTED, WIFI_SCAN, GEOFENCE), confirm a `@IntoMap @DetectionMethodKey(value=...)` binding exists. Add missing bindings if any.
+- Escalate permission requests:
+  - On any detector enable in Settings, if `POST_NOTIFICATIONS` is not granted, request it inline before persisting.
+  - On geofence enable, after FOREGROUND_LOCATION is granted, also request `ACCESS_BACKGROUND_LOCATION`. Show the rationale dialog.
+- Confirm `DetectionPromptNotificationWorker` actually creates its notification channel `DETECTION_PROMPT` on first post (or in `NotificationScheduler.initialize()` at app start). Many "no notification appears" issues come from a missing channel on Android 8+.
+
+**Runbook update (CLAUDE.md, both copies).** Add a section after "Project Commands":
+
+```markdown
+## Debugging detection on a device
+
+Filter logs to the Detection tag:
+    adb logcat -s Detection
+
+Was the periodic worker scheduled?
+    adb shell dumpsys jobscheduler | grep -i day_detection
+
+Was the geofence registered?
+    adb shell dumpsys location | grep -i OFFICE_GEOFENCE
+
+Which permissions are granted?
+    adb shell dumpsys package com.carvalhorr.daysInOffice | \
+      grep -E "FINE_LOCATION|BACKGROUND_LOCATION|POST_NOTIFICATIONS|NEARBY_WIFI"
+
+Notification channels:
+    adb shell cmd notification list
+    adb shell cmd notification print_channels com.carvalhorr.daysInOffice
+```
+
+#### Acceptance Criteria
+- [ ] `adb logcat -s Detection` produces a complete trace from `SettingsViewModel.update*` → `DayDetectionWorker.doWork` → `DetectionOrchestrator.runDetection` → `DetectionPromptNotificationWorker.postPromptNotification` for every one-shot detection run.
+- [ ] When detection runs without a positive signal, the user sees a Snackbar/toast saying so within ~10 seconds of saving Settings.
+- [ ] When `POST_NOTIFICATIONS` is denied, the user gets an actionable prompt the next time they enable a detector.
+- [ ] When `ACCESS_BACKGROUND_LOCATION` is denied and geofencing is enabled, an inline banner explains the limitation.
+- [ ] `DetectorModule` audit complete — every `DetectionMethod` that should have a detector has an `@IntoMap` binding (greppable verification).
+- [ ] The `DETECTION_PROMPT` notification channel is created at app start (or first use).
+- [ ] CLAUDE.md (both copies) gets the new "Debugging detection on a device" section.
+- [ ] Manual device test: with all permissions granted and connected to the configured Wi-Fi, enabling Wi-Fi (connected) in Settings produces an actual notification within 30 seconds. If it does not, the logcat trace points to exactly which step failed.
+- [ ] `MainFlowSmokeTest` continues to pass (or any new failures are caught by `SMOKE_RESULTS.md`).
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.detection.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.notification.*"
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug
+```
+
+---
+
 ## Phase 5: Release Validation
 
 ### TASK-021: Release Smoke Test Suite

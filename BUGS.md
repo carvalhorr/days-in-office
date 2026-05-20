@@ -1077,6 +1077,72 @@ if (enabled) {
 
 ---
 
+## BUG-023: Detection end-to-end does not produce a notification on a real device, despite all wiring appearing correct on inspection
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** **High** (the headline feature does not work for the user)
+
+**Observed (device, 2026-05-20, after round 5 with TASK-040/041/042 DONE + all smoke PASS):** the user enables Wi-Fi (connected) and/or Geofencing in Settings while physically at the office, expects an "Are you at the office?" notification, and gets nothing. Same on both detectors. The orchestrator's smoke suite reports green; the device says otherwise.
+
+**Inspection shows the wiring is in place** (this is the frustrating part):
+
+- `DaysInOfficeApp.onCreate()` calls `DayDetectionWorker.schedule(...)` and `geofenceDetector.setupGeofence()` if `shouldActivate()`.
+- `SettingsViewModel.{updateWifiConnected,updateWifiScan,updateGeofence}` persist the config, register/remove the geofence as appropriate, and enqueue a `OneTimeWorkRequest<DayDetectionWorker>` with `force_run=true` via `enqueueOneShotDetection()`.
+- `DayDetectionWorker.doWork()` reads `force_run` from input data, bypasses the time gate via `shouldRun(forceRun, today, now)`, calls `DetectionOrchestrator.runDetection(today)`.
+- `DetectionOrchestrator` iterates enabled methods, checks `isAvailable` + `isAtOffice` + per-detector suppression, then calls `detectionPromptNotificationWorker.postPromptNotification(method)`.
+- `WifiConnectedDetector.isAtOffice()` correctly strips quotes from the connected SSID and compares case-insensitively against the configured target.
+- `AndroidManifest.xml` declares `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`, `NEARBY_WIFI_DEVICES`, `POST_NOTIFICATIONS`.
+
+So the code path *exists* but something between "code path exists" and "notification appears on the lock screen" is failing silently.
+
+**Most likely failure points (test each as part of the fix):**
+
+1. **Runtime permission not granted (silent geofence-register failure).** Even with the manifest declaration, `ACCESS_BACKGROUND_LOCATION` is a separate runtime grant on Android 10+. Without it, `geofencingClient.addGeofences(...)` resolves but the geofence never fires events. Likewise `POST_NOTIFICATIONS` (Android 13+) — the notification posts but never appears. Today neither failure surfaces to the user; both are silent.
+2. **DetectorModule binding is wrong / detector missing from the map.** If `DetectorModule` doesn't `@IntoMap` provide a detector for the enabled method, the orchestrator's `detectors[method] ?: continue` silently skips. Verify with a grep — every `DetectionMethod` value should appear once in `@IntoMap @DetectionMethodKey(...)`.
+3. **`isAvailable(context)` returns false.** `WifiConnectedDetector.isAvailable` checks `hasSystemFeature(PackageManager.FEATURE_WIFI)` — should be true. `GeofenceDetector.isAvailable` checks lat/lng/radius non-null — fails if persistence is broken (BUG-012/016 may not be fully fixed).
+4. **`isAtOffice()` returns false because device state isn't what the user thinks.** Maybe phone is on cellular, not the office Wi-Fi. Maybe the saved geofence has stale lat/lng (BUG-012/016 again). Maybe `geofenceInside` flag in DataStore hasn't been written because the receiver never fired (no runtime permission).
+5. **The worker doesn't actually run.** WorkManager may defer due to battery / doze / network constraints. `OneTimeWorkRequest` without explicit constraints should run within seconds, but it's worth verifying.
+6. **`postPromptNotification` fails silently.** Notification channel not created, PendingIntent target missing, POST_NOTIFICATIONS denied — all swallowed today.
+
+**This is a debug-instrumentation bug as much as a code bug.** The fix is split: (a) instrument the pipeline so failure modes are visible, then (b) fix whatever the instrumentation reveals.
+
+**Fix scope (proposed as TASK-043):**
+
+**Part 1 — make failures visible.**
+- Add `Log.i("Detection", ...)` (or `Timber.tag("Detection")`) at every step:
+  - `SettingsViewModel.enqueueOneShotDetection` — "queued one-shot for $method".
+  - `DayDetectionWorker.doWork` — "starting (forceRun=$force_run, shouldRun=$result)".
+  - `DetectionOrchestrator.runDetection` — entry, "today already confirmed?", each method's branch decision with reason ("skipped GEOFENCE because !isAvailable" / "...because suppressed today" / "...because !isAtOffice").
+  - `GeofenceDetector.setupGeofence` — "registered geofence $id at ($lat,$lng,$radius)" or "addGeofences failed: $error".
+  - `GeofenceBroadcastReceiver.onReceive` — "transition=$transition, geofenceInside now $value".
+  - `WifiConnectedDetector.isAtOffice` — "target=$targetSsid, connected=$connectedSsid, match=$result".
+  - `DetectionPromptNotificationWorker.postPromptNotification` — "posting notification for $method" or "POST_NOTIFICATIONS not granted, skipping".
+- Each log line readable via `adb logcat -s Detection`.
+
+**Part 2 — surface failures user-visibly.**
+- When the user enables a detector, the one-shot path should produce *some* user feedback within ~10 seconds: either the actual prompt notification (success) or a debug toast/Snackbar like "Detection ran. No positive signal found." (info). Today the user sees nothing whether the run worked or failed — same UX, no signal.
+- If `POST_NOTIFICATIONS` is denied, escalate the permission request when enabling any detector (the current request is at app start; users who declined will never see a prompt).
+- If `ACCESS_BACKGROUND_LOCATION` is denied and geofence is enabled, show a persistent banner in the Geofence sheet warning that detection only works in the foreground.
+
+**Part 3 — verify the suspected failure points one by one.**
+- `DetectorModule` audit: every `DetectionMethod` is bound, including `MANUAL` if relevant.
+- Permission audit: confirm `BACKGROUND_LOCATION` is actually requested at runtime; confirm `POST_NOTIFICATIONS` ditto.
+- `adb shell dumpsys` verifications added to the CLAUDE.md runbook:
+  - `adb shell dumpsys jobscheduler | grep -i day_detection` (worker scheduled?)
+  - `adb shell dumpsys location | grep -i OFFICE_GEOFENCE` (geofence registered?)
+  - `adb shell cmd notification list` (notification channels created? POST permission granted?)
+
+**Acceptance criteria:**
+- Walking through "enable Wi-Fi (connected) at office" produces visible logcat lines tracing the entire pipeline (`adb logcat -s Detection`).
+- If the one-shot detection completes without a positive signal, the user gets a Snackbar / toast explaining "no signal found".
+- If any required permission is missing, the relevant Settings save action prompts for it (or shows a banner indicating the gap).
+- The CLAUDE.md runbook gets a new "Debugging detection on a device" section with the dumpsys / logcat recipes.
+- After the instrumentation, a manual device test confirms: enable Wi-Fi (connected) while connected to the configured SSID → notification appears within 30 seconds. Same for Geofencing while inside the radius.
+
+**Related:**
+- **TASK-038 / BUG-019** — wiring. **TASK-039 / BUG-020** — confirmation flow. **TASK-040 / BUG-022** — immediate run. All three say "should work" by inspection; this bug says "in practice it doesn't, instrument and find out".
+- **Smoke gap** — `MainFlowSmokeTest` can't reach this class of failure (no real Wi-Fi network in test, no real geofence transition). This is a permanent limitation; logs + manual device test fill the gap.
+
+---
+
 ## Triage summary
 
 | Bug | Status | Severity | Notes |
@@ -1103,6 +1169,7 @@ if (enabled) {
 | BUG-020 | OPEN | Medium | Detection must REQUIRE confirmation before writing today's record. User flagged drive-by false positives (passing the office en route elsewhere → silent OFFICE write replaces correct REMOTE). Detection becomes suggestive (notification only); nothing written until user confirms. Tightens Invariant #1. |
 | BUG-021 | OPEN | Medium | Wi-Fi sheet's SSID list pushes Save button off-screen and the sheet content isn't scrollable. Fix: add `verticalScroll` to the sheet's Column (or restructure to pin Save row to bottom edge). Same anti-pattern likely in WifiScanSheet + GeofenceSheet. |
 | BUG-022 | OPEN | Medium | Detection should fire immediately when a detector is enabled in Settings, not wait up to 2h for the periodic worker. Fix: one-shot worker on Settings save (with `force_run` flag bypassing time-of-day gate); for geofence also set `INITIAL_TRIGGER_ENTER` so registering inside the region fires an ENTER event right away. |
+| BUG-023 | OPEN | **High** | Detection end-to-end produces no notification on device, despite all wiring correct on inspection + smoke PASS. Most likely: silent failure of runtime permission grant (ACCESS_BACKGROUND_LOCATION, POST_NOTIFICATIONS) or a detector silently returning false. Diagnostic-first fix: instrument every step with logcat + user-visible feedback + dumpsys-based device verification recipes in CLAUDE.md. |
 
 **Recommended grouping for task filing:**
 

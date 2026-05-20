@@ -2017,6 +2017,186 @@ This task strengthens Key Invariant #1. The old form ("never overwrite `confirme
 
 ---
 
+### TASK-040: Fix BUG-022 — detection runs immediately on Settings save (no 2h wait)
+**Status:** NOT_STARTED
+**Dependencies:** TASK-038, TASK-039
+**Complexity:** Simple
+
+#### Context
+Per `BUGS.md` BUG-022, enabling Wi-Fi or Geofencing in Settings while physically at the office produces no detection prompt for up to 2 hours (the periodic `DayDetectionWorker` cadence). The user reasonably expects an immediate "Are you at the office?" check the moment they finish configuring — both to validate the config is correct and because they're standing at the office *now*.
+
+Two contributing causes:
+1. **No immediate trigger on Settings save** — only the periodic worker checks.
+2. **Geofence registration doesn't fire ENTER when the device is already inside the region.** Without `setInitialTrigger(INITIAL_TRIGGER_ENTER)`, Android only fires on transitions, so enabling geofencing while at the office produces nothing.
+
+#### Scope — Files to Modify
+- `feature/settings/SettingsViewModel.kt` — enqueue a one-shot worker after enabling each detector.
+- `core/detection/worker/DayDetectionWorker.kt` — accept a `force_run` input flag; skip the weekday/daytime gate when set.
+- `core/detection/detector/GeofenceDetector.kt` — add `.setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)` to the `GeofencingRequest.Builder()` chain.
+
+#### Implementation Details
+
+**Part A — one-shot detection on enable.**
+
+1. Inject `WorkManager` into `SettingsViewModel`.
+2. In each `update*` method, after persisting, if the transition is `enabled == true`, enqueue a one-shot worker:
+   ```kotlin
+   workManager.enqueue(
+       OneTimeWorkRequestBuilder<DayDetectionWorker>()
+           .setInputData(workDataOf("force_run" to true))
+           .build()
+   )
+   ```
+3. In `DayDetectionWorker.doWork()`, read the `force_run` input. If true, skip the `shouldDetect(today, now)` gate so the one-shot runs regardless of weekday/time. Periodic invocations (no input data) still respect the gate.
+
+**Part B — geofence initial trigger.**
+
+4. In `GeofenceDetector.setupGeofence()`, build the `GeofencingRequest` with:
+   ```kotlin
+   val request = GeofencingRequest.Builder()
+       .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+       .addGeofence(geofence)
+       .build()
+   ```
+   This makes Android fire ENTER immediately at registration time if the device is already inside the region.
+
+#### Acceptance Criteria
+- [ ] Enable Wi-Fi (connected) in Settings while connected to the office Wi-Fi → notification fires within ~30s (not 2h).
+- [ ] Enable Wi-Fi (scan only) while in range of the office SSID → notification fires within ~30s (allowing scan latency).
+- [ ] Enable Geofencing while physically inside the configured radius → notification fires within ~30s.
+- [ ] Enable Geofencing while *outside* the radius → no immediate prompt (correct — no positive signal).
+- [ ] Periodic 2h cadence continues to work for ongoing detection (regression-test on the worker).
+- [ ] One-shot worker runs even on a Saturday at 22:00 (force_run bypasses the gate); periodic worker still respects it.
+- [ ] Unit test on `DayDetectionWorker` covering both `force_run=true` and `force_run=false` paths.
+- [ ] No `DayRecord` is written without user confirmation (Invariant #1 preserved).
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.detection.*"
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.settings.*"
+./gradlew :app:assembleDebug
+```
+
+---
+
+### TASK-041: Fix BUG-021 — Wi-Fi / Geofence sheets must keep Save button reachable
+**Status:** NOT_STARTED
+**Dependencies:** TASK-026, TASK-030
+**Complexity:** Simple
+
+#### Context
+Per `BUGS.md` BUG-021, when a Wi-Fi scan returns several SSIDs the list inside the bottom sheet pushes the Save / Cancel row off the visible area and the sheet's content `Column` is not scrollable. Same anti-pattern is likely present in the Geofence sheet (which can grow due to the picker plus auto-detect status text).
+
+#### Scope — Files to Modify
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/WifiConnectedSheet.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/WifiScanSheet.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/GeofenceSheet.kt`
+- Smoke test addition under `MainFlowSmokeTest.kt`.
+
+#### Implementation Details
+Restructure each affected sheet's content as a `Box` (or `Column` with a `Modifier.weight(1f, fill=false)` scrollable region above and a fixed action row below). The Material-3-idiomatic shape:
+
+```kotlin
+ModalBottomSheet(...) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
+        // Header + description always visible
+        Text("Wi-Fi (Connected)", ...)
+        Text("Detects when ...", ...)
+
+        // Scrollable middle region (claim available space; do not push action row)
+        Column(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row { Text("Enable"); Switch(...) }
+            if (draftEnabled) { WifiSsidPicker(...) }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // Action row pinned to the bottom of the sheet's content
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+            Button(onClick = ..., modifier = Modifier.weight(1f)) { Text("Save") }
+        }
+    }
+}
+```
+
+Apply consistently to all three sheets. Then add a smoke test that opens Wi-Fi (scan only), toggles Enable, simulates a Scan result of ≥ 8 SSIDs (mock or fake the `WifiScanner` if needed), and asserts that "Save" is still `assertIsDisplayed()`.
+
+#### Acceptance Criteria
+- [ ] In all three sheets (Wi-Fi connected, Wi-Fi scan, Geofencing): the Save button is visible regardless of how much dynamic content the body holds.
+- [ ] The dynamic content region is scrollable independently of the action row.
+- [ ] Tapping an SSID in the list still fills the SSID field and does not disable / hide Save.
+- [ ] New smoke test in `MainFlowSmokeTest` (e.g. `e07_settingsWifiScanSaveReachableWithLongList`) asserts Save remains hittable.
+- [ ] No regression in the existing `e02_*`, `e03_*`, `e04_*` tests.
+
+#### QA Verification Steps
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug
+./gradlew :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.carvalhorr.daysInOffice.smoke.ui.MainFlowSmokeTest
+```
+
+---
+
+### TASK-042: Audit and re-fix the round-4 smoke regressions (b02, c02, d03, e03, e04)
+**Status:** NOT_STARTED
+**Dependencies:** TASK-027, TASK-029, TASK-030, TASK-036, TASK-037, TASK-038, TASK-039
+**Complexity:** Medium
+
+#### Context
+The post-task smoke hook introduced in commit `e129c21d` and applied for the first time during round 4 (TASK-038 + TASK-039) caught five failing tests after TASK-039:
+
+```
+b02_dashboardCheckInRemoteButtonRespondsToClick     ← NEW regression (was passing in rounds 1–3)
+c02_homeTabReturnsToDashboardAfterGearIconSettings  ← RE-REGRESSED (TASK-027 was supposed to fix BUG-008)
+d03_calendarPtoUpdatesDashboardDenominator          ← failing since added in TASK-037 (BUG-018)
+e03_settingsWifiScanRowOpensAndEnablesWithoutCrash  ← RE-REGRESSED (TASK-030 was supposed to fix BUG-011)
+e04_settingsGeofencingRowOpensAndEnablesWithoutCrash ← RE-REGRESSED (TASK-030 was supposed to fix BUG-011)
+```
+
+The three "re-regressed" entries are the most concerning: they were green in earlier rounds, now red after TASK-038/039 which on paper shouldn't have touched those surfaces. Most likely cause: an overzealous refactor or a side-effect of injecting `GeofenceDetector` into `DaysInOfficeApp`, OR TASK-039's removal of `DayRecord(confirmedByUser=false)` writes broke something Dashboard relied on, OR a picker file got touched and lost the `hiltViewModel()` import.
+
+#### Scope — Files to Investigate
+
+This is an investigation task; the modify-list is unknown until diagnosis. Likely suspects:
+
+- `app/DaysInOfficeApp.kt` — TASK-038 added the geofence injection + `setupGeofence()` call on `onCreate`. A NullPointerException or initialization failure here could break the Activity launch path and explain multiple regressions.
+- `core/detection/DetectionOrchestrator.kt` — TASK-039 stripped the direct-write path. If Dashboard was reading a status that's no longer emitted, b02 (Remote button) symptom follows.
+- `feature/shared/ui/WifiSsidPicker.kt` and `feature/shared/ui/GeofencePicker.kt` — TASK-030 fixed these by switching `viewModel()` → `hiltViewModel()`. If TASK-039 touched either file (e.g. to wire confirmation flow), the import may have been reverted.
+- `app/navigation/DaysInOfficeNavHost.kt` — TASK-027 added the tab-switch nav options for the gear icon. If TASK-038/039 modified this file at all, c02 could break.
+- `core/domain/usecase/GetComplianceUseCase.kt` — TASK-022/037 added the PTO/HOLIDAY filter. d03 failing means today's PTO mark isn't reaching the compliance calc, despite TASK-037 being marked DONE.
+
+#### Implementation Details
+
+1. **Diagnose each failure individually.** Read each failing test's output from `app/build/reports/androidTests/connected/debug/...` (or re-run the smoke suite via the CLAUDE.md command). For each, identify whether it's a build-failure-class issue (app crashes on launch → all tests cascade-fail) or a per-test-class issue.
+
+2. **Cross-reference with TASK-038/039 diffs.** `git -C runs/claude/sonnet-4-6 diff e2c5d5e4^..6238effa -- app/src/main/` shows what those tasks touched. Any unexpected files in that diff are leading suspects.
+
+3. **Fix without re-breaking previously-fixed surfaces.** Each re-regression had a working fix in an earlier task; pull that fix's commit and verify it's still there in HEAD.
+
+4. **Add specific assertions to prevent each regression from recurring.** For b02, ideally assert today's record changed to REMOTE after the tap (currently the test just verifies "Dashboard still renders"). For c02, assert the back-stack is empty after tab-return. For e03/e04, assert the picker composes when the Enable switch is toggled.
+
+#### Acceptance Criteria
+- [ ] All five failing tests pass: b02, c02, d03, e03, e04.
+- [ ] No previously-passing test goes red.
+- [ ] Each fixed regression has its root cause documented in the commit message (which file change caused the regression).
+- [ ] `SMOKE_RESULTS.md` shows PASS after the task completes.
+- [ ] Where possible, tighten each test's assertion so the same regression class is harder to recur silently.
+
+#### QA Verification Steps
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.carvalhorr.daysInOffice.smoke.ui.MainFlowSmokeTest
+# Expected: all 15+ tests PASS. SMOKE_RESULTS.md row records PASS.
+```
+
+---
+
 ## Phase 5: Release Validation
 
 ### TASK-021: Release Smoke Test Suite

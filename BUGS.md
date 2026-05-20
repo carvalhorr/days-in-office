@@ -965,6 +965,118 @@ This makes detection **suggestive**, not **authoritative** — the user is alway
 
 ---
 
+## BUG-021: Wi-Fi network selection list blocks the Save button
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** Medium (functional blocker — can't complete the Wi-Fi setup flow)
+
+**Observed (device, 2026-05-20):** In Settings → Wi-Fi (connected) → Enable → "Scan for networks", once the scan returns a list of nearby SSIDs the user cannot reach the Save button at the bottom of the sheet. The list pushes Save off the visible area and the sheet can't be scrolled (or scrolling gets captured by the list items, never reaching the sheet's outer container). Same likely true for Wi-Fi (scan only).
+
+**Likely root cause:** the bottom sheet's content `Column` has `Arrangement.spacedBy(16.dp)` but **no** `verticalScroll(rememberScrollState())`. Reference:
+
+```kotlin
+// feature/settings/ui/sheets/WifiConnectedSheet.kt — current shape
+ModalBottomSheet(...) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(...),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Wi-Fi (Connected)", ...)
+        Text("Detects when ...", ...)
+        Row { Text("Enable"); Switch(...) }
+        if (draftEnabled) {
+            WifiSsidPicker(...)   // includes the dynamic SSID list
+        }
+        Spacer(Modifier.height(8.dp))
+        Row { OutlinedButton("Cancel"); Button("Save") }   // ← gets pushed off-screen
+    }
+}
+```
+
+`WifiSsidPicker` renders one `TextButton` per detected SSID (`state.ssids.forEach { ... }`). At 6+ SSIDs the total content height exceeds the sheet's visible area and the Save row is below the fold with no scroll affordance.
+
+Additional likely contributor: the SSID `TextButton`s consume drag gestures, so even if the user tries to swipe up to expand the sheet, the gesture is captured by a list item rather than reaching the sheet's drag handle.
+
+**Fix scope (one of, or both):**
+
+1. **Make the sheet's content scrollable** — add `.verticalScroll(rememberScrollState())` to the outer `Column` in `WifiConnectedSheet.kt` AND `WifiScanSheet.kt` (probably also `GeofenceSheet.kt`, same anti-pattern likely there). The Save row stays at the natural bottom and the user scrolls past the SSID list to reach it.
+
+2. **Pin the Save row to the sheet's bottom edge.** Restructure the sheet's `Column` into a `Box` with the action row in `Modifier.align(Alignment.BottomEnd)` and the scrollable content above. This is the more Material-3-idiomatic pattern for "long content + sticky action row" — Save is always visible regardless of how long the list grows.
+
+Option 2 is the better UX (Save always reachable, never requires scrolling). Option 1 is the smaller diff. Pick option 2 if budget allows.
+
+**Files:**
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/WifiConnectedSheet.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/WifiScanSheet.kt`
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/GeofenceSheet.kt` (verify; same pattern likely present)
+- Smoke-test addition (worth adding under TASK-039's follow-up or a separate cleanup task): assert that "Save" remains hittable after scanning when the list grows beyond N entries.
+
+**Acceptance criteria:**
+- After scanning and getting a list of any length (test with at least 8 SSIDs), the Save button is reachable in the sheet.
+- Tapping an SSID in the list fills the SSID field and does NOT remove the user's ability to tap Save afterwards.
+- Tapping outside the list still dismisses the sheet (Cancel-equivalent).
+- Same fix applied to `WifiScanSheet.kt` and verified on `GeofenceSheet.kt`.
+
+**Related:**
+- **BUG-013** — the empty-state side of the same picker. Fixing visibility (BUG-013) and the layout (BUG-021) in the same task makes sense.
+- **BUG-011** (Hilt factory) — fixed in TASK-030. With BUG-011 fixed, BUG-021's symptom becomes reproducible — so this report likely couldn't have been raised before TASK-030.
+- Possibly the same root layout-pattern issue as **BUG-009** (status-bar inset) — both stem from "we didn't think about insets / scroll in the sheet shell".
+
+---
+
+## BUG-022: Detection should run immediately when a detector is enabled in Settings (not wait up to 2h)
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** Medium (UX trust — "I just enabled it, prove it works")
+
+**Observed (device, 2026-05-20):** After enabling Wi-Fi (connected) or Geofencing in Settings while physically present at the office, no detection prompt arrives for a long time — up to 2 hours. The user reasonably expects an immediate "Are you at the office?" check the moment they finish configuring the detector, both to validate that the configuration is correct and because they're standing in the office *right now*.
+
+**Why this happens today:**
+
+1. **Wi-Fi (both connected + scan):** the only check site is inside `DayDetectionWorker.doWork()`, which is a periodic worker with a 2-hour interval, gated to weekdays 07:00–19:00. Enabling Wi-Fi in Settings has **no immediate trigger** — the next check happens whenever the next worker tick lands (up to 2h later). Outside the time window, no detection at all until the next weekday morning.
+
+2. **Geofencing — entry-side latency is fine, prompt-side isn't:**
+   - The `GeofenceBroadcastReceiver` fires within seconds of *crossing* into the radius and writes `geofenceInside = true`. Good.
+   - But the notification still comes from the periodic worker tick, so the user-visible prompt can still take up to 2h.
+   - **Worse: if the user is already inside the geofence at the moment they enable it**, Android's `GeofencingClient` doesn't fire an ENTER transition (there was no transition — they were always inside). Unless `setupGeofence()` calls `GeofencingRequest.Builder().setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)`, nothing fires at all. (Verify the current code — TASK-038's implementation likely didn't set this flag.)
+
+**Fix scope:**
+
+**Part A — fire a one-shot detection on Settings save.** In `SettingsViewModel`, after persisting an `enabled = true` transition for any detector, enqueue a `OneTimeWorkRequest<DayDetectionWorker>` so a check runs immediately (subject to WorkManager constraints — no time-of-day gating on the one-shot variant). The periodic 2h schedule continues unchanged. Idempotent: if the result is "no positive signal", nothing user-facing happens.
+
+```kotlin
+// SettingsViewModel.updateWifiConnected(...) — after persisting
+if (enabled) {
+    workManager.enqueue(
+        OneTimeWorkRequestBuilder<DayDetectionWorker>()
+            .setInputData(workDataOf("force_run" to true))  // bypass shouldDetect time gate
+            .build()
+    )
+}
+```
+
+`DayDetectionWorker.doWork()` needs a small change: when invoked with `force_run = true`, skip the `shouldDetect(today, now)` time-of-day / weekend gate so the one-shot fires regardless of when the user is configuring.
+
+**Part B — geofence: trigger ENTER on registration if already inside.** Modify `GeofenceDetector.setupGeofence()` to add `.setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)` to the `GeofencingRequest.Builder()` chain. When the geofence is registered, Android checks whether the device is currently inside the region; if yes, fires an ENTER transition immediately. The user enabling geofencing while at the office now gets the receiver event (and via Part A's one-shot check, a notification) within seconds.
+
+**Files to modify:**
+- `feature/settings/SettingsViewModel.kt` — enqueue one-shot worker on enable transitions for each detector.
+- `core/detection/worker/DayDetectionWorker.kt` — accept `force_run` input data; skip time gate when present.
+- `core/detection/detector/GeofenceDetector.kt` — add `.setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)`.
+- Unit tests on the worker: `force_run=true` runs even on a Saturday at 22:00; `force_run=false` (default) still respects the gate.
+
+**Acceptance criteria:**
+- Enable Wi-Fi (connected) in Settings while connected to the office Wi-Fi → notification fires within ~30s.
+- Enable Wi-Fi (scan only) in Settings while in range of the office SSID → notification fires within ~30s (scan latency).
+- Enable Geofencing while physically inside the configured radius → notification fires within ~30s.
+- Enable Geofencing while *outside* the radius → no immediate prompt (correct — there's no positive signal yet).
+- The periodic 2h cadence continues to work for ongoing detection (unchanged).
+- Outside the weekday-daytime window, the one-shot test on enable STILL fires (so the user can validate config at any time); the periodic worker continues to respect the time gate.
+- Unit tests cover the `force_run` flag in the worker.
+
+**Related:**
+- **TASK-038 / BUG-019** — wired up the infrastructure; this bug is the next layer of "make it feel responsive".
+- **TASK-039 / BUG-020** — the confirmation-required model is unchanged; the one-shot just triggers the same prompt mechanism faster.
+- The 2h periodic cadence itself may be reconsidered later (do we even need it if we have real-time broadcast receivers for geofence and Wi-Fi state change broadcasts for connection?). Out of scope for BUG-022, but worth a follow-up design conversation.
+
+---
+
 ## Triage summary
 
 | Bug | Status | Severity | Notes |
@@ -989,6 +1101,8 @@ This makes detection **suggestive**, not **authoritative** — the user is alway
 | BUG-018 | OPEN | **High** | Marking a day PTO from Calendar still doesn't reduce Dashboard's working-days denominator (TASK-022 regression of BUG-004). Check whether buildResult filter actually landed; if yes, the regression is in repo-Flow reactivity (BUG-010 family). |
 | BUG-019 | OPEN | **High** | Detection infrastructure never wired up at app start — `setupGeofence()` and `DayDetectionWorker.schedule(...)` are defined but never called. Plumbing exists, on/off switch was never flipped. Likely from TASK-009/010 integration gap. |
 | BUG-020 | OPEN | Medium | Detection must REQUIRE confirmation before writing today's record. User flagged drive-by false positives (passing the office en route elsewhere → silent OFFICE write replaces correct REMOTE). Detection becomes suggestive (notification only); nothing written until user confirms. Tightens Invariant #1. |
+| BUG-021 | OPEN | Medium | Wi-Fi sheet's SSID list pushes Save button off-screen and the sheet content isn't scrollable. Fix: add `verticalScroll` to the sheet's Column (or restructure to pin Save row to bottom edge). Same anti-pattern likely in WifiScanSheet + GeofenceSheet. |
+| BUG-022 | OPEN | Medium | Detection should fire immediately when a detector is enabled in Settings, not wait up to 2h for the periodic worker. Fix: one-shot worker on Settings save (with `force_run` flag bypassing time-of-day gate); for geofence also set `INITIAL_TRIGGER_ENTER` so registering inside the region fires an ENTER event right away. |
 
 **Recommended grouping for task filing:**
 

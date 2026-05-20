@@ -512,6 +512,56 @@ print(json.dumps(record))
   [[ "$TASK_STATUS_FINAL" == "FAILED" ]] && STATUS_ICON="✗"
   echo "$STATUS_ICON $TASK_ID: $TASK_STATUS_FINAL (${TASK_DURATION}s, $ATTEMPTS attempt(s))"
 
+  # ── Post-task UI smoke (REPORT-ONLY) ────────────────────────────────────
+  # Runs after every DONE task regardless of whether the task's own qa_commands
+  # invoked it. Outcome is appended to SMOKE_RESULTS.md and a banner is printed
+  # to run.log if the failure set changed. Smoke results never gate task DONE.
+  # Requires the AVD to be already booted (orchestrator does not boot one).
+  if [[ "$TASK_STATUS_FINAL" == "DONE" ]]; then
+    SMOKE_CMD="./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.carvalhorr.daysInOffice.smoke.ui.MainFlowSmokeTest"
+    SMOKE_LOG_MD="$RUN_DIR/SMOKE_RESULTS.md"
+    echo "  Running UI smoke (report-only)..."
+    SMOKE_JSON=$(bash "$SCRIPTS_DIR/run_qa.sh" "$RUN_DIR" "$SMOKE_CMD" 2>/dev/null || echo '{"passed":false,"output":"smoke runner errored"}')
+    SMOKE_PASSED=$(echo "$SMOKE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('passed', False))" 2>/dev/null || echo "False")
+    SMOKE_OUTPUT=$(echo "$SMOKE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('output', ''))" 2>/dev/null || echo "")
+    SMOKE_FAILS=$(printf '%s' "$SMOKE_OUTPUT" | grep -oE 'MainFlowSmokeTest > [A-Za-z0-9_]+' | awk '{print $NF}' | sort -u | paste -sd, - 2>/dev/null || echo "")
+    SMOKE_TS=$(date +%Y-%m-%dT%H:%M:%S)
+    if [[ "$SMOKE_PASSED" == "True" ]]; then
+      echo "    ✓ Smoke: all passing"
+      SMOKE_VERDICT="PASS"
+      SMOKE_FAILS_DISPLAY="(none)"
+    else
+      SMOKE_VERDICT="FAIL"
+      SMOKE_FAILS_DISPLAY="${SMOKE_FAILS:-(could not parse failures)}"
+      echo "    ⚠ Smoke: $SMOKE_FAILS_DISPLAY"
+      echo "  ════════════════════════════════════════════════════════"
+      echo "  ⚠ POST-TASK SMOKE REGRESSION ALERT — $TASK_ID"
+      echo "    Failing tests: $SMOKE_FAILS_DISPLAY"
+      echo "    Cross-check against Known-Failing UI Smoke Tests in CLAUDE.md."
+      echo "    Failures outside that list are NEW regressions caused by this task."
+      echo "  ════════════════════════════════════════════════════════"
+    fi
+    # Append to SMOKE_RESULTS.md (create with header on first write)
+    if [[ ! -f "$SMOKE_LOG_MD" ]]; then
+      cat > "$SMOKE_LOG_MD" <<'MDHEADER'
+# Post-Task UI Smoke Results
+
+Recorded by `run_experiment.sh` after every task that reaches DONE.
+**Report-only:** does not block task completion. Use it to spot regressions —
+any failing test outside `Known-Failing UI Smoke Tests` (CLAUDE.md) is new.
+
+| Task | Time (UTC-local) | Verdict | Failing tests |
+|---|---|---|---|
+MDHEADER
+    fi
+    echo "| $TASK_ID | $SMOKE_TS | $SMOKE_VERDICT | $SMOKE_FAILS_DISPLAY |" >> "$SMOKE_LOG_MD"
+    # Commit the smoke log update so it lands in the run-repo's history.
+    git -C "$RUN_DIR" add SMOKE_RESULTS.md 2>/dev/null || true
+    git -C "$RUN_DIR" diff --cached --quiet 2>/dev/null || \
+      git -C "$RUN_DIR" commit -q -m "chore: smoke $TASK_ID — $SMOKE_VERDICT" 2>/dev/null || true
+    git -C "$ROOT_DIR" fetch "$RUN_DIR" HEAD:"$BRANCH" 2>/dev/null || true
+  fi
+
   write_state "running" "$TASK_ID" ""
 done  # tasks
 

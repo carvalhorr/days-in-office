@@ -782,7 +782,7 @@
           <div class="ci-title">Today — Friday, 8 May</div>
           <div class="ci-sub" id="ci-sub">Are you in the office today?</div>
           <div class="ci-btns" style="margin-top:14px">
-            <button class="btn-office" id="ci-btn-office" onclick="checkIn()">🏢 Check in</button>
+            <button class="btn-office" id="ci-btn-office" onclick="checkIn()">🏢 Office</button>
             <button class="btn-remote" id="ci-btn-remote" onclick="goRemote()">🏠 Remote</button>
           </div>
         </div>
@@ -1165,8 +1165,8 @@ function setTodayStatus(status) {
     sub.textContent = 'Office day recorded — tap Remote to change.';
   } else {
     rb.classList.remove('dim'); rb.textContent = '✓ Remote';
-    ob.classList.add('dim');    ob.textContent = '🏢 Check in';
-    sub.textContent = 'Remote day recorded — tap Check in to change.';
+    ob.classList.add('dim');    ob.textContent = '🏢 Office';
+    sub.textContent = 'Remote day recorded — tap Office to change.';
   }
   refreshDashboard();
   buildCalendar();

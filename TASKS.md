@@ -1740,6 +1740,142 @@ The "🔁 Reset onboarding" row sits in Settings → Data with a label that soun
 
 ---
 
+### TASK-035: Fix BUG-016 — remove redundant "Set Location" button from GeofencePicker (likely also closes BUG-012)
+**Status:** NOT_STARTED
+**Dependencies:** TASK-026
+**Complexity:** Simple
+
+#### Context
+The Geofence sheet has two action buttons that both seem to commit values — "Set Location" inside `GeofencePicker` and "Save" at the bottom of the sheet. Per BUG-016, "Set Location" likely holds the picker's local state and only propagates to the parent sheet's draft when tapped; "Save" then persists stale state if the user didn't tap "Set Location" first. This is the most plausible underlying defect behind BUG-012 (persistence failure). See `BUGS.md` BUG-016.
+
+#### Scope — Files to Modify
+- `feature/shared/ui/GeofencePicker.kt` — remove the "Set Location" button; call `onUpdate(lat, lng, radius)` on every internal field change.
+- `feature/settings/ui/sheets/GeofenceSheet.kt` — confirm its `onUpdate` callback writes to the draft on every emission.
+- `feature/onboarding/ui/DetectionSetupStep.kt` — same picker is used here; same change.
+- `prototype/index.html` — mirror the simplified UX.
+
+#### Implementation Details
+1. Delete the `Button("Set Location") { onUpdate(...) }` from `GeofencePicker`.
+2. Wire each `OutlinedTextField`'s `onValueChange` to call `onUpdate(lat, lng, radius)` with the latest combined state. No debounce — three fields is too few to matter for performance.
+3. The "Use current location" handler should call `onUpdate(...)` directly on success too.
+4. Verify there are no other side-effects of the button (e.g. validation gating). If validation is needed, do it in the parent sheet's `onSave` instead.
+
+#### Acceptance Criteria
+- [ ] No "Set Location" button visible in the Geofence sheet or onboarding step.
+- [ ] Editing any field in the picker (manual entry or auto-detect) updates the sheet's draft immediately.
+- [ ] Tapping Save once persists the latest values to DataStore.
+- [ ] BUG-012 symptom resolved: set values → tap Save → kill app → re-launch → values still there. **This task likely closes BUG-012; if it does, mark BUG-012 closed and remove TASK-031 if redundant.**
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.feature.settings.*"
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug
+```
+
+---
+
+### TASK-036: Fix BUG-017 — Office button can't override Remote (TASK-024 regression); rename "Check in" → "Office"
+**Status:** NOT_STARTED
+**Dependencies:** TASK-024, TASK-029
+**Complexity:** Simple
+
+#### Context
+TASK-024 was the BUG-007 fix and was marked DONE, but device testing 2026-05-20 shows the symptom persists: tapping 🏢 Check in after a prior 🏠 Remote selection has no effect. The user also requests renaming "🏢 Check in" → "🏢 Office" for label symmetry with "🏠 Remote". See `BUGS.md` BUG-017.
+
+#### Scope — Files to Investigate / Modify
+- `core/domain/usecase/RecordOfficeDayUseCase.kt`
+- `core/domain/usecase/RecordRemoteDayUseCase.kt`
+- `core/data/repository/DayRecordRepositoryImpl.kt`
+- `feature/dashboard/DashboardViewModel.kt`
+- `feature/dashboard/ui/QuickCheckInButton.kt`
+- `prototype/index.html`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/smoke/ui/MainFlowSmokeTest.kt`
+
+#### Implementation Details
+
+**Part A — fix the toggle:**
+1. Read the current `RecordOfficeDayUseCase` and `RecordRemoteDayUseCase`. If TASK-024 added a guard that allows overwriting `confirmedByUser=true` records only when called from one specific path, expand it to cover BOTH directions: an explicit Dashboard tap is always `confirmedByUser=true` user intent and must overwrite an existing same-date record regardless of its prior status.
+2. Confirm the upsert path in `DayRecordRepositoryImpl` uses `OnConflictStrategy.REPLACE` (or equivalent) for the manual-write path.
+3. Add unit tests:
+   - Pre-existing OFFICE record + `checkInAsRemote()` → record becomes REMOTE.
+   - Pre-existing REMOTE record + `checkInAsOffice()` → record becomes OFFICE.
+   - Both with `confirmedByUser=true` on the new record.
+4. Key Invariant #1 must remain intact: AUTOMATED detection must still not overwrite `confirmedByUser=true`. Dashboard taps are not automated detection.
+
+**Part B — rename:**
+5. In `feature/dashboard/ui/QuickCheckInButton.kt`, change both occurrences of `Text("🏢 Check in")` to `Text("🏢 Office")`.
+6. In `app/src/androidTest/.../MainFlowSmokeTest.kt`, update the `b01_*` test finder from `hasText("🏢 Check in")` to `hasText("🏢 Office")`.
+7. Mirror the rename in `prototype/index.html`.
+
+#### Acceptance Criteria
+- [ ] On Dashboard: tap 🏠 Remote → record = REMOTE. Tap 🏢 Office → record = OFFICE. Tap 🏠 Remote → record = REMOTE. All three transitions persist and the Dashboard re-renders immediately (no app restart).
+- [ ] The 🏢 button reads "Office" in Dashboard, prototype, and smoke test.
+- [ ] Unit tests pass covering BOTH overwrite directions.
+- [ ] `MainFlowSmokeTest.b01_*` and `.b02_*` continue to pass after the rename.
+- [ ] Key Invariant #1 verified by a unit test: AUTOMATED detection against `confirmedByUser=true` is still rejected.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.domain.usecase.*"
+./gradlew :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.carvalhorr.daysInOffice.smoke.ui.MainFlowSmokeTest
+./gradlew :app:assembleDebug
+```
+
+---
+
+### TASK-037: Fix BUG-018 — PTO from Calendar still doesn't reduce Dashboard denominator (TASK-022 regression)
+**Status:** NOT_STARTED
+**Dependencies:** TASK-022, TASK-029
+**Complexity:** Medium
+
+#### Context
+TASK-022 was the BUG-004 fix and was marked DONE, but device testing 2026-05-20 shows the symptom persists: marking a day PTO from Calendar doesn't change Dashboard's `totalWorkingDays` or compliance percentage. See `BUGS.md` BUG-018. Two possible root causes (not mutually exclusive):
+
+1. TASK-022's `userExcludedDays` filter in `GetComplianceUseCase.buildResult` didn't actually land.
+2. The Calendar→PTO write doesn't propagate reactively to the Dashboard's compliance Flow (BUG-010-class issue).
+
+#### Scope — Files to Investigate / Modify
+- `core/domain/usecase/GetComplianceUseCase.kt` — confirm post-TASK-022 PTO/HOLIDAY exclusion (the `userExcludedDays` filter).
+- `core/data/repository/DayRecordRepositoryImpl.kt` — confirm the read path is a reactive Room `Flow`.
+- `feature/dashboard/DashboardViewModel.kt` — confirm `state` is built from that Flow via `stateIn(...)`.
+- `feature/calendar/CalendarViewModel.kt` — verify `markAsPto(...)` writes through the same repo path Dashboard reads from.
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/smoke/ui/MainFlowSmokeTest.kt` — add a new test for this end-to-end path.
+
+#### Implementation Details
+1. **Diagnose first.** Grep `GetComplianceUseCase.kt` for `PTO` and `HOLIDAY`. If the filter is absent, restore TASK-022's `buildResult` patch (the `userExcludedDays` set + `effectiveWorkingDays` filtering).
+2. If the filter IS present, the regression is in the read-path reactivity. Verify `DayRecordDao.observeAll(): Flow<List<DayRecordEntity>>` (or equivalent), and that both `DashboardViewModel` and `CalendarViewModel` consume this same Flow.
+3. Add a new instrumented test to `MainFlowSmokeTest`:
+   ```kotlin
+   @Test
+   fun d03_calendarPtoUpdatesDashboardDenominator() {
+       ensureAtDashboard()
+       // capture initial totalWorkingDays from the stats strip
+       goCalendarViaTab()
+       // tap a weekday → "Mark as PTO"
+       // return to Dashboard
+       // assert totalWorkingDays decreased by exactly 1
+   }
+   ```
+4. Add a unit test to `GetComplianceUseCaseTest`: given 10 working days, 2 marked PTO → `totalWorkingDays == 8` and the percentage uses 8 as denominator.
+
+#### Acceptance Criteria
+- [ ] Mark a working day PTO from Calendar → Dashboard immediately shows updated `totalWorkingDays` and percentage (no app restart).
+- [ ] `GetComplianceUseCaseTest` covers the 10-→-8 denominator-change case.
+- [ ] `MainFlowSmokeTest.d03_*` covers the end-to-end "PTO on calendar → Dashboard denominator change" path and passes.
+- [ ] `daysNeededToComply` never goes negative even when the denominator changes.
+
+#### QA Verification Steps
+```bash
+./gradlew testDebugUnitTest --tests "com.carvalhorr.daysInOffice.core.domain.usecase.GetComplianceUseCaseTest"
+./gradlew :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.carvalhorr.daysInOffice.smoke.ui.MainFlowSmokeTest
+./gradlew :app:assembleDebug
+```
+
+---
+
 ## Phase 5: Release Validation
 
 ### TASK-021: Release Smoke Test Suite

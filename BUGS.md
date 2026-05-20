@@ -740,6 +740,125 @@ viewModel: GeofencePickerViewModel = hiltViewModel()
 
 ---
 
+## BUG-016: Geofence sheet has redundant "Set Location" button alongside "Save" — likely the underlying cause of BUG-012
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** Low (UX), but probably the real root cause of BUG-012's persistence failure
+
+**Observed (device, 2026-05-20):** The Geofence bottom sheet exposes two action buttons that both *appear* to commit values:
+- **"Set Location"** inside `GeofencePicker` — per TASK-026's spec, "only enabled when all 3 fields are valid"; intended to apply the picker's local state to the parent sheet's draft.
+- **"Save"** at the bottom of the sheet — per every other Settings sheet's convention, supposed to persist the sheet's draft to DataStore.
+
+The user reports that **clicking "Set Location" makes values persist**, but that "Save" alone does not. This is exactly the symptom one would expect if the picker stores its lat/lng/radius in *its own* local `remember` state and only calls the parent's `onUpdate(...)` when "Set Location" is tapped — meaning the sheet's `draftLat / draftLng / draftRadius` stay stale (or null) until that button is pressed. "Save" then persists whatever is in the sheet's draft — which is empty when the user hasn't tapped "Set Location" first.
+
+This makes BUG-016 the most plausible *underlying cause* of BUG-012, and TASK-031 (BUG-012's planned fix) should pick the right resolution: not "fix the write path" but "remove the extra button and make value-edits flow into the draft immediately."
+
+**Fix scope:**
+- **Remove the "Set Location" button** from `GeofencePicker`. Every value change inside the picker (text-field edits, "Use current location" success) should call `onUpdate(lat, lng, radius)` directly. The parent sheet's draft then always reflects the latest picker state.
+- The single **"Save"** button on the sheet remains the only persistence trigger — same UX as `TargetSheet`, `PeriodSheet`, etc.
+- Same change for any other call site of `GeofencePicker` (onboarding flow).
+
+**Files to modify:**
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/shared/ui/GeofencePicker.kt` — remove the `Button("Set Location")`; route every internal state change through `onUpdate(...)`.
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/settings/ui/sheets/GeofenceSheet.kt` — confirm `onUpdate = { lat, lng, radius -> draftLat = lat; draftLng = lng; draftRadius = radius }` fires for every change.
+- `app/src/main/kotlin/com/carvalhorr/daysInOffice/feature/onboarding/ui/DetectionSetupStep.kt` — same picker call site; same change.
+- `prototype/index.html` — mirror the simpler UX.
+
+**Acceptance criteria:**
+- "Set Location" button is gone from the Geofence picker (both in Settings sheet and Onboarding step).
+- Editing lat/lng/radius (or tapping "Use current location") immediately reflects in the sheet's draft state — no intermediate apply action needed.
+- Tapping Save once persists the latest values to DataStore.
+- BUG-012's symptom is resolved: set values → tap Save → kill app → re-launch → values are still there.
+
+**Related:**
+- **BUG-012** — geofence coords don't persist. BUG-016 is most likely the same bug seen from the UX angle. Resolving BUG-016 probably closes BUG-012 too; if not, the remaining gap is genuine DataStore plumbing.
+- **BUG-003 / TASK-026** — the auto-detect feature; the redundant "Set Location" button was introduced by TASK-026's picker design. Removing it doesn't undo TASK-026, just streamlines the apply mechanism.
+- **TASK-031** — the planned BUG-012 fix should be re-scoped to target BUG-016's resolution as its primary work.
+
+---
+
+## BUG-017: Dashboard Office button still can't override a prior Remote selection — TASK-024 regression; rename "Check in" → "Office" to clarify the toggle
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** Medium — **Supersedes:** BUG-007 (whose fix in TASK-024 did not resolve the symptom)
+
+**Observed (device, 2026-05-20):** From the Dashboard, tap **🏠 Remote** for today (record persists). Then tap **🏢 Check in** to switch the record to OFFICE — nothing happens. The user remains unable to toggle freely between Office and Remote for today. This is the same symptom BUG-007 reported, even after TASK-024 was marked DONE in the prior orchestrator run; either the fix didn't actually land in the buttons' click path, or it covered only one direction (e.g. Office→Remote works but Remote→Office doesn't).
+
+**Symmetric-label suggestion (user, 2026-05-20):** The current button labels are **"🏢 Check in"** and **"🏠 Remote"** — asymmetric. Renaming the office button to **"🏢 Office"** makes it clear at a glance that these are mutually-exclusive states the user can toggle between, not "primary action vs secondary". This change alone makes the broken toggle behaviour more glaring (which is good — it forces the fix) and matches every other "two-state selector" pattern in the app.
+
+**Fix scope (two parts, same commit):**
+
+1. **Functional — actually allow re-selection in both directions.**
+   - Audit `RecordOfficeDayUseCase` and `RecordRemoteDayUseCase` for any guard that prevents overwriting an existing same-date record. The "never overwrite confirmedByUser = true with automated detection" invariant must remain, but **manual** clicks from the Dashboard are not automated detection — they are explicit user intent and must always replace the record's `status`.
+   - Confirm the `DashboardViewModel.checkInAsOffice() / checkInAsRemote()` paths invoke the use case with `confirmedByUser = true` (since the user explicitly tapped) and that the use case's upsert path honours that.
+   - Add a unit test on both use cases: pre-existing OFFICE record + `checkInAsRemote()` → record becomes REMOTE; pre-existing REMOTE record + `checkInAsOffice()` → record becomes OFFICE.
+
+2. **Cosmetic — rename "🏢 Check in" → "🏢 Office".**
+   - `feature/dashboard/ui/QuickCheckInButton.kt:39` and `:48` — change the two `Text("🏢 Check in")` to `Text("🏢 Office")`.
+   - `prototype/index.html` — mirror the rename so the prototype source-of-truth matches.
+   - `MainFlowSmokeTest.kt` — update the finder in `b01_dashboardCheckInOfficeButtonRespondsToClick`: `hasText("🏢 Check in")` → `hasText("🏢 Office")`.
+
+**Files:**
+- `core/domain/usecase/RecordOfficeDayUseCase.kt`
+- `core/domain/usecase/RecordRemoteDayUseCase.kt`
+- `core/data/repository/DayRecordRepositoryImpl.kt` (if the upsert lives there)
+- `feature/dashboard/DashboardViewModel.kt`
+- `feature/dashboard/ui/QuickCheckInButton.kt`
+- `prototype/index.html`
+- `app/src/androidTest/kotlin/com/carvalhorr/daysInOffice/smoke/ui/MainFlowSmokeTest.kt`
+- Relevant unit tests under `app/src/test/.../core/domain/usecase/`
+
+**Acceptance criteria:**
+- From a clean state: tap 🏠 Remote → record = REMOTE; tap 🏢 Office → record = OFFICE; tap 🏠 Remote again → record = REMOTE. All three transitions persist and re-render Dashboard immediately (no app restart needed).
+- The 🏢 button reads "Office" everywhere (Dashboard, prototype, smoke test).
+- Unit tests cover both `Office→Remote` and `Remote→Office` overwrites at the use-case level.
+- `MainFlowSmokeTest.b01_*` continues to pass after the text rename.
+- The "confirmedByUser true won't be overwritten by automated detection" invariant remains intact (key invariant #1 in CLAUDE.md).
+
+**Related:**
+- **BUG-007** — the original "can't change today's check-in" report. TASK-024 was its fix; this entry exists because that fix did not resolve the symptom in practice.
+- **BUG-010** — Dashboard check-in click had "no visible state change". TASK-029 was its fix. If TASK-029's repository-Flow rework is correct, the UI *would* re-render once the use case actually writes the new status; so BUG-017's likely root cause is in the use case / upsert layer, not the UI layer.
+- **BUG-002f** — already notes a copy issue around the check-in subtitle; cluster cosmetic check-in copy decisions together.
+
+---
+
+## BUG-018: Marking a day as PTO from the Calendar still doesn't reduce the working-days denominator — TASK-022 regression
+**Found:** 2026-05-20 — **Status:** OPEN — **Severity:** High — **Supersedes:** BUG-004 (whose fix in TASK-022 did not resolve the symptom)
+
+**Observed (device, 2026-05-20):** From Calendar, tap a weekday → DayDetailSheet → tap "Mark as PTO". The day's status updates to PTO on the calendar view (visible status change). However, on returning to Dashboard:
+- The **total working days** count is unchanged.
+- The **compliance percentage** is unchanged.
+- The **compliance ring** is unchanged.
+
+Expected: marking a working day as PTO should reduce `totalWorkingDays` by 1, recompute the percentage against the smaller denominator (so e.g. 5 OFFICE of 10 working days = 50% becomes 5 OFFICE of 9 effective = ~55.5%), and re-render Dashboard. This is exactly what BUG-004 described and what TASK-022's spec required — but the symptom persists.
+
+**Possible regression points (one or more):**
+
+1. **TASK-022's fix didn't actually land.** Confirm `GetComplianceUseCase.buildResult` was updated per TASK-022's spec — the `userExcludedDays` set computed from `records.filter { it.status == DayStatus.PTO || it.status == DayStatus.HOLIDAY }` and subtracted from `workingDays`. If the existing code is the original (numerator-only handling), TASK-022 never ran or was reverted.
+2. **Compliance Flow doesn't re-emit when a record is updated to PTO.** The use case is correct, but `DashboardViewModel.state` doesn't observe the repository as a reactive Flow — so the new PTO record never propagates to the compliance recalculation until the next process restart. This is the BUG-010 family failure mode applied to PTO writes.
+3. **Calendar's `markAsPto` writes through a different repository path than Dashboard reads from** — e.g. a different DAO method that bypasses the Flow observers.
+
+**Diagnostic order (cheapest first):**
+- Grep `GetComplianceUseCase.kt` for `PTO` and `HOLIDAY`. If the filter is present, hypothesis 1 is ruled out — go to hypothesis 2.
+- Kill and re-launch the app after marking PTO. If the percentage NOW reflects the change, hypothesis 2 is confirmed (write reaches DB, read isn't reactive). If still unchanged after restart, hypothesis 1 or 3 is the cause.
+
+**Files to inspect:**
+- `core/domain/usecase/GetComplianceUseCase.kt` — confirm post-TASK-022 PTO/HOLIDAY exclusion
+- `core/data/repository/DayRecordRepositoryImpl.kt` — confirm `getAll() / observeAll()` returns a Room `Flow<List<DayRecordEntity>>` consumed by both Dashboard and Calendar VMs
+- `feature/dashboard/DashboardViewModel.kt` — confirm `state` collects from the Flow that re-emits on record updates
+- `feature/calendar/CalendarViewModel.kt` — confirm `markAsPto` writes through the same repo path Dashboard reads from
+- `core/domain/usecase/RecordPtoUseCase.kt` (if it exists) — confirm it writes a `DayRecord(status = PTO, confirmedByUser = true)` rather than just inserting a holiday-table row
+
+**Acceptance criteria:**
+- Mark a working day as PTO from Calendar → Dashboard immediately shows the updated `totalWorkingDays` and percentage (no app restart needed).
+- The PTO/HOLIDAY filter in `GetComplianceUseCase.buildResult` is verifiably present (grep- and test-checkable).
+- Unit test on `GetComplianceUseCase`: given a 10-working-day window with 2 days marked PTO, `totalWorkingDays == 8` and the percentage uses 8 as denominator.
+- Compose UI test (or smoke addition): mark today as PTO from the Calendar day-detail sheet → return to Dashboard → assert the stats strip changed.
+- `daysNeededToComply` never goes negative even after the denominator changes.
+
+**Related:**
+- **BUG-004** — original report; TASK-022 was its planned fix.
+- **BUG-010 / TASK-029** — Dashboard re-render after record changes. If TASK-029 was complete, hypothesis 2 should be ruled out by reading the code; if not complete, BUG-018's UI symptom inherits BUG-010's root cause.
+- **Smoke-test gap** — `MainFlowSmokeTest` currently has no test covering "mark PTO → assert Dashboard denominator changed". Adding one as part of BUG-018's fix would prevent the next regression.
+
+---
+
 ## Triage summary
 
 | Bug | Status | Severity | Notes |
@@ -759,6 +878,9 @@ viewModel: GeofencePickerViewModel = hiltViewModel()
 | BUG-013 | OPEN | Medium | Wi-Fi "Scan for networks" produces no list. Suspect missing `NEARBY_WIFI_DEVICES` (API 33+), or throttling, or silent empty-state render. Audit manifest + logcat. |
 | BUG-014 | OPEN | Low | Remove unspecified "Export CSV" row from Settings → Data. No product requirement; revisit later. Delete row + use-case + sheet + prototype entry. |
 | BUG-015 | OPEN | Low/Medium | "Reset onboarding" label is unclear; visually grouped with Export (BUG-014). Rename to "Re-run setup wizard" + move to its own section + clarify "your data is kept". |
+| BUG-016 | OPEN | Low (UX) — but probably the real BUG-012 root cause | Geofence picker has a redundant "Set Location" button. Likely explanation: picker holds its own local state, only calls `onUpdate` when that button is tapped, so Save persists stale draft. Remove the button; route every change through `onUpdate(...)`. |
+| BUG-017 | OPEN | Medium | Dashboard Office button still can't override prior Remote (TASK-024 regression of BUG-007). Plus rename "🏢 Check in" → "🏢 Office" for symmetry with Remote. Two-part fix: use-case re-selection guards + label rename. |
+| BUG-018 | OPEN | **High** | Marking a day PTO from Calendar still doesn't reduce Dashboard's working-days denominator (TASK-022 regression of BUG-004). Check whether buildResult filter actually landed; if yes, the regression is in repo-Flow reactivity (BUG-010 family). |
 
 **Recommended grouping for task filing:**
 

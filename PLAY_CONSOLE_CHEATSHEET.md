@@ -253,7 +253,64 @@ Skip — not applicable.
 
 ---
 
-## 16. Final pre-submission checklist
+## 16. Wiring the CI auto-upload (T12)
+
+The `.github/workflows/release.yml` workflow uses
+[gradle-play-publisher](https://github.com/Triple-T/gradle-play-publisher)
+to push the signed bundle to the **internal** testing track on every
+`v*.*.*` tag. Before this works, you need a Play service account.
+
+### One-time setup
+
+1. **Google Cloud → IAM & Admin → Service Accounts.** Create a service
+   account named e.g. `days-in-office-publisher`. No GCP roles needed
+   (Play API is granted separately). Generate a JSON key and download
+   it (this is the only time it's shown — re-key if lost).
+2. **Play Console → Setup → API access.** Link the GCP project that
+   contains the service account, then "Grant access" to the account
+   with permissions:
+   - **App permissions:** Days in Office (this app).
+   - **Account permissions:** *Release manager* (lets it create, edit,
+     and roll out releases on the internal track, but not full Admin).
+3. **GitHub repo → Settings → Secrets and variables → Actions.** Add
+   four repo secrets, matching what `release.yml` expects:
+   - `KEYSTORE_BASE64` — `base64 -i app/upload-keystore.jks | tr -d '\n'`
+   - `KEYSTORE_PASSWORD` — value from `KEYSTORE_README.md`
+   - `KEY_ALIAS` — `upload`
+   - `KEY_PASSWORD` — same as `KEYSTORE_PASSWORD` (we use one password)
+   - `PLAY_SERVICE_ACCOUNT_JSON` — the **raw contents** of the
+     downloaded service-account JSON (paste the whole `{ ... }`
+     blob; the workflow does **not** base64-decode this one).
+
+### Bootstrap step (must happen before the first auto-upload)
+
+`gradle-play-publisher` can only upload to an app that already exists in
+Play Console. For v1, you have to do one manual upload to seed it:
+
+1. Build the `.aab` locally (`./gradlew bundleRelease` — already done at T6).
+2. Play Console → All apps → "Create app". Fill the inline metadata.
+3. Internal testing → Create new release → upload `app-release.aab`
+   manually. This registers the app + applicationId + signing
+   fingerprint with Play.
+4. **Enable Play App Signing** when prompted (recommended — see
+   `KEYSTORE_README.md`).
+5. From v1.0.1 onward, `git tag v1.0.1 && git push --tags` triggers
+   `release.yml`, builds and signs the `.aab` in CI, attaches it to a
+   GitHub Release, and pushes it to Play's internal track.
+
+### Verifying
+
+Push a test tag like `v0.0.1-dryrun` on a throwaway branch first. The
+workflow will:
+- Build the signed bundle ✓
+- If `PLAY_SERVICE_ACCOUNT_JSON` is set: attempt `publishReleaseBundle`.
+- If not set: skip Play upload, just attach the bundle to the GitHub
+  Release (the workflow logs a `::warning::` line).
+
+On first push: GPP error "App with package ... not found" → that's the
+bootstrap step talking; finish the manual upload first.
+
+## 17. Final pre-submission checklist
 
 Tick all before clicking "Submit to internal testing":
 

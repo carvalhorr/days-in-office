@@ -29,3 +29,6 @@ local.properties
 keystore.properties
 app/upload-keystore.jks
 KEYSTORE_README.md
+
+# Play Console service-account credentials — must never be committed
+play-service-account.json

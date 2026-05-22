@@ -6,6 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
+    id("com.github.triplet.play")
 }
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -114,4 +115,17 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
+}
+
+// Gradle Play Publisher — pushes the signed bundleRelease output to the
+// Play Console's internal testing track. The service-account JSON is read
+// from `play-service-account.json` at the repo root; in CI this file is
+// materialised from the PLAY_SERVICE_ACCOUNT_JSON secret. Locally the file
+// is gitignored. If absent at task-execution time the publishing tasks
+// fail loudly (other tasks like assembleDebug are unaffected).
+play {
+    serviceAccountCredentials.set(rootProject.file("play-service-account.json"))
+    track.set("internal")
+    defaultToAppBundles.set(true)
+    releaseStatus.set(com.github.triplet.gradle.androidpublisher.ReleaseStatus.COMPLETED)
 }

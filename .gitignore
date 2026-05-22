@@ -24,3 +24,8 @@ local.properties
 
 # Aider local state
 .aider*
+
+# Play Store upload signing — must never be committed
+keystore.properties
+app/upload-keystore.jks
+KEYSTORE_README.md

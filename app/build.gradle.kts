@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +7,14 @@ plugins {
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
 }
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val releaseSigningProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+val hasReleaseSigning = releaseSigningProperties.getProperty("storeFile") != null
 
 android {
     namespace = "com.carvalhorr.daysInOffice"
@@ -19,6 +29,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    if (hasReleaseSigning) {
+        signingConfigs {
+            create("release") {
+                storeFile = rootProject.file(releaseSigningProperties.getProperty("storeFile"))
+                storePassword = releaseSigningProperties.getProperty("storePassword")
+                keyAlias = releaseSigningProperties.getProperty("keyAlias")
+                keyPassword = releaseSigningProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -26,6 +47,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

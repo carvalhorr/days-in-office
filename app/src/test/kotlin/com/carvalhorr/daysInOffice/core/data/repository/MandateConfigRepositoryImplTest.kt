@@ -39,12 +39,14 @@ class MandateConfigRepositoryImplTest {
         every { preferencesDataSource.mandatePercentage } returns flowOf(0.5f)
         every { preferencesDataSource.mandatePeriod } returns flowOf(MandatePeriod.MONTHLY)
         every { preferencesDataSource.workingDays } returns flowOf(defaultWorkingDays)
+        every { preferencesDataSource.fiscalYearStartMonth } returns flowOf(1)
 
         val result = repository.getMandateConfig().first()
 
         assertEquals(0.5f, result.targetPercentage)
         assertEquals(MandatePeriod.MONTHLY, result.period)
         assertEquals(defaultWorkingDays, result.workingDays)
+        assertEquals(1, result.fiscalYearStartMonth)
     }
 
     @Test
@@ -53,12 +55,14 @@ class MandateConfigRepositoryImplTest {
         every { preferencesDataSource.mandatePercentage } returns flowOf(0.75f)
         every { preferencesDataSource.mandatePeriod } returns flowOf(MandatePeriod.QUARTERLY)
         every { preferencesDataSource.workingDays } returns flowOf(savedWorkingDays)
+        every { preferencesDataSource.fiscalYearStartMonth } returns flowOf(4)
 
         val result = repository.getMandateConfig().first()
 
         assertEquals(0.75f, result.targetPercentage)
         assertEquals(MandatePeriod.QUARTERLY, result.period)
         assertEquals(savedWorkingDays, result.workingDays)
+        assertEquals(4, result.fiscalYearStartMonth)
     }
 
     @Test
@@ -72,12 +76,14 @@ class MandateConfigRepositoryImplTest {
         coJustRun { preferencesDataSource.saveMandatePercentage(any()) }
         coJustRun { preferencesDataSource.saveMandatePeriod(any()) }
         coJustRun { preferencesDataSource.saveWorkingDays(any()) }
+        coJustRun { preferencesDataSource.saveFiscalYearStartMonth(any()) }
 
         repository.saveMandateConfig(config)
 
         coVerify { preferencesDataSource.saveMandatePercentage(0.6f) }
         coVerify { preferencesDataSource.saveMandatePeriod(MandatePeriod.WEEKLY) }
         coVerify { preferencesDataSource.saveWorkingDays(workingDays) }
+        coVerify { preferencesDataSource.saveFiscalYearStartMonth(1) }
     }
 
     @Test

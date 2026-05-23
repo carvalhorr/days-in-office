@@ -84,6 +84,71 @@ class GetComplianceUseCaseTest {
     }
 
     @Test
+    fun `quarterly bounds with default (January) fiscal year start match calendar quarters`() {
+        val config = MandateConfig(
+            targetPercentage = 0.5f,
+            period = MandatePeriod.QUARTERLY,
+            workingDays = weekdays()
+        )
+        // Feb 15 2026 → Q1 2026 (Jan-Mar)
+        val (q1Start, q1End) = useCase.getPeriodBounds(config, LocalDate.of(2026, 2, 15))
+        assertEquals(LocalDate.of(2026, 1, 1), q1Start)
+        assertEquals(LocalDate.of(2026, 3, 31), q1End)
+        // May 1 2026 → Q2 (Apr-Jun)
+        val (q2Start, q2End) = useCase.getPeriodBounds(config, LocalDate.of(2026, 5, 1))
+        assertEquals(LocalDate.of(2026, 4, 1), q2Start)
+        assertEquals(LocalDate.of(2026, 6, 30), q2End)
+        // Dec 31 2026 → Q4 (Oct-Dec)
+        val (q4Start, q4End) = useCase.getPeriodBounds(config, LocalDate.of(2026, 12, 31))
+        assertEquals(LocalDate.of(2026, 10, 1), q4Start)
+        assertEquals(LocalDate.of(2026, 12, 31), q4End)
+    }
+
+    @Test
+    fun `quarterly bounds with April fiscal year start give Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar quarters`() {
+        val config = MandateConfig(
+            targetPercentage = 0.5f,
+            period = MandatePeriod.QUARTERLY,
+            workingDays = weekdays(),
+            fiscalYearStartMonth = 4
+        )
+        // May 2026 → Q1 of FY (Apr 2026 - Jun 2026)
+        val (q1Start, q1End) = useCase.getPeriodBounds(config, LocalDate.of(2026, 5, 15))
+        assertEquals(LocalDate.of(2026, 4, 1), q1Start)
+        assertEquals(LocalDate.of(2026, 6, 30), q1End)
+        // Aug 2026 → Q2 (Jul-Sep)
+        val (q2Start, q2End) = useCase.getPeriodBounds(config, LocalDate.of(2026, 8, 1))
+        assertEquals(LocalDate.of(2026, 7, 1), q2Start)
+        assertEquals(LocalDate.of(2026, 9, 30), q2End)
+        // Feb 2026 → Q4 of previous FY (Jan-Mar 2026)
+        val (q4Start, q4End) = useCase.getPeriodBounds(config, LocalDate.of(2026, 2, 15))
+        assertEquals(LocalDate.of(2026, 1, 1), q4Start)
+        assertEquals(LocalDate.of(2026, 3, 31), q4End)
+    }
+
+    @Test
+    fun `quarterly bounds with October fiscal year start give Oct-Dec, Jan-Mar, Apr-Jun, Jul-Sep quarters`() {
+        val config = MandateConfig(
+            targetPercentage = 0.5f,
+            period = MandatePeriod.QUARTERLY,
+            workingDays = weekdays(),
+            fiscalYearStartMonth = 10
+        )
+        // Nov 2025 → Q1 of FY26 (Oct-Dec 2025)
+        val (q1Start, q1End) = useCase.getPeriodBounds(config, LocalDate.of(2025, 11, 15))
+        assertEquals(LocalDate.of(2025, 10, 1), q1Start)
+        assertEquals(LocalDate.of(2025, 12, 31), q1End)
+        // Feb 2026 → Q2 (Jan-Mar 2026)
+        val (q2Start, q2End) = useCase.getPeriodBounds(config, LocalDate.of(2026, 2, 1))
+        assertEquals(LocalDate.of(2026, 1, 1), q2Start)
+        assertEquals(LocalDate.of(2026, 3, 31), q2End)
+        // Aug 2026 → Q4 (Jul-Sep 2026)
+        val (q4Start, q4End) = useCase.getPeriodBounds(config, LocalDate.of(2026, 8, 15))
+        assertEquals(LocalDate.of(2026, 7, 1), q4Start)
+        assertEquals(LocalDate.of(2026, 9, 30), q4End)
+    }
+
+    @Test
     fun `given quarterly period when invoked then period spans correct calendar quarter`() = runTest {
         val today = LocalDate.now()
         val quarter = (today.monthValue - 1) / 3

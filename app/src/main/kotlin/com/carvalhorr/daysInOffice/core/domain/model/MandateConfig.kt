@@ -5,5 +5,6 @@ import java.time.DayOfWeek
 data class MandateConfig(
     val targetPercentage: Float,
     val period: MandatePeriod,
-    val workingDays: Set<DayOfWeek>
+    val workingDays: Set<DayOfWeek>,
+    val fiscalYearStartMonth: Int = 1
 )

@@ -72,7 +72,9 @@ fun OnboardingScreen(
                     )
                     1 -> PeriodSelectionStep(
                         selectedPeriod = state.mandateConfig.period,
-                        onPeriodSelected = viewModel::updatePeriod
+                        fiscalYearStartMonth = state.mandateConfig.fiscalYearStartMonth,
+                        onPeriodSelected = viewModel::updatePeriod,
+                        onFiscalYearStartChanged = viewModel::updateFiscalYearStartMonth
                     )
                     2 -> DetectionSetupStep(
                         detectionConfig = state.detectionConfig,

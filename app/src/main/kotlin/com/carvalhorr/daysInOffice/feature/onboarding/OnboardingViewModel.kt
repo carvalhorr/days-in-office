@@ -77,6 +77,12 @@ class OnboardingViewModel @Inject constructor(
         _state.update { s -> s.copy(mandateConfig = s.mandateConfig.copy(period = period)) }
     }
 
+    fun updateFiscalYearStartMonth(month: Int) {
+        _state.update { s ->
+            s.copy(mandateConfig = s.mandateConfig.copy(fiscalYearStartMonth = month.coerceIn(1, 12)))
+        }
+    }
+
     fun toggleDetectionMethod(method: DetectionMethod) {
         _state.update { s ->
             val methods = s.detectionConfig.enabledMethods.toMutableSet()

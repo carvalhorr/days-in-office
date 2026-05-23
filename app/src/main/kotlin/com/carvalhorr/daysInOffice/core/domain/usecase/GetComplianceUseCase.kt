@@ -25,15 +25,15 @@ class GetComplianceUseCase @Inject constructor(
     operator fun invoke(): Flow<ComplianceResult> =
         mandateConfigRepository.getMandateConfig().flatMapLatest { config ->
             val today = LocalDate.now()
-            val (start, end) = getPeriodBounds(config.period, today)
+            val (start, end) = getPeriodBounds(config, today)
             dayRecordRepository.getDayRecords(start, end).map { records ->
                 val workingDays = getWorkingDaysUseCase(start, end)
                 buildResult(config, records, workingDays, start, end)
             }
         }
 
-    private fun getPeriodBounds(period: MandatePeriod, today: LocalDate): Pair<LocalDate, LocalDate> =
-        when (period) {
+    internal fun getPeriodBounds(config: MandateConfig, today: LocalDate): Pair<LocalDate, LocalDate> =
+        when (config.period) {
             MandatePeriod.WEEKLY -> {
                 val start = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
                 val end = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
@@ -45,9 +45,10 @@ class GetComplianceUseCase @Inject constructor(
                 start to end
             }
             MandatePeriod.QUARTERLY -> {
-                val quarter = (today.monthValue - 1) / 3
-                val startMonth = quarter * 3 + 1
-                val start = LocalDate.of(today.year, startMonth, 1)
+                val fyStart = config.fiscalYearStartMonth.coerceIn(1, 12)
+                val offsetMonths = (today.monthValue - fyStart + 12) % 12
+                val monthsInQuarter = (offsetMonths % 3).toLong()
+                val start = today.withDayOfMonth(1).minusMonths(monthsInQuarter)
                 val end = start.plusMonths(3).minusDays(1)
                 start to end
             }

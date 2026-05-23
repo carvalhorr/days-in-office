@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.carvalhorr.daysInOffice.core.domain.model.DetectionMethod
 import com.carvalhorr.daysInOffice.core.domain.model.MandatePeriod
@@ -32,6 +33,7 @@ class PreferencesDataSource @Inject constructor(
     companion object {
         private val MANDATE_PERCENTAGE = floatPreferencesKey("mandate_percentage")
         private val MANDATE_PERIOD = stringPreferencesKey("mandate_period")
+        private val FISCAL_YEAR_START_MONTH = intPreferencesKey("fiscal_year_start_month")
         private val WORKING_DAYS = stringPreferencesKey("working_days")
         private val DETECTION_METHODS = stringPreferencesKey("detection_methods")
         private val WIFI_SSID = stringPreferencesKey("wifi_ssid")
@@ -58,6 +60,10 @@ class PreferencesDataSource @Inject constructor(
 
     val mandatePeriod: Flow<MandatePeriod> = dataStore.data.map { prefs ->
         prefs[MANDATE_PERIOD]?.let { MandatePeriod.valueOf(it) } ?: MandatePeriod.MONTHLY
+    }
+
+    val fiscalYearStartMonth: Flow<Int> = dataStore.data.map { prefs ->
+        (prefs[FISCAL_YEAR_START_MONTH] ?: 1).coerceIn(1, 12)
     }
 
     val workingDays: Flow<Set<DayOfWeek>> = dataStore.data.map { prefs ->
@@ -108,6 +114,10 @@ class PreferencesDataSource @Inject constructor(
 
     suspend fun saveMandatePeriod(value: MandatePeriod) {
         dataStore.edit { prefs -> prefs[MANDATE_PERIOD] = value.name }
+    }
+
+    suspend fun saveFiscalYearStartMonth(value: Int) {
+        dataStore.edit { prefs -> prefs[FISCAL_YEAR_START_MONTH] = value.coerceIn(1, 12) }
     }
 
     suspend fun saveWorkingDays(value: Set<DayOfWeek>) {

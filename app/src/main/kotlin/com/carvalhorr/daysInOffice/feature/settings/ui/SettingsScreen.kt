@@ -52,17 +52,19 @@ import com.carvalhorr.daysInOffice.feature.settings.SettingsNavigationEvent
 import com.carvalhorr.daysInOffice.feature.settings.SettingsUiState
 import com.carvalhorr.daysInOffice.feature.settings.SettingsViewModel
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.CalendarSyncSheet
+import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.FiscalYearStartSheet
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.GeofenceSheet
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.PeriodSheet
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.TargetSheet
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.WifiConnectedSheet
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.WifiScanSheet
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.WorkingDaysSheet
+import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.monthLabel
 import java.time.DayOfWeek
 import kotlin.math.roundToInt
 
 private enum class SettingsSheet {
-    TARGET, PERIOD, WORKING_DAYS, WIFI_CONNECTED, WIFI_SCAN, GEOFENCE, CALENDAR_SYNC
+    TARGET, PERIOD, FISCAL_YEAR_START, WORKING_DAYS, WIFI_CONNECTED, WIFI_SCAN, GEOFENCE, CALENDAR_SYNC
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -155,6 +157,14 @@ fun SettingsScreen(
                         currentPeriod = s.mandateConfig.period,
                         onSave = { period ->
                             viewModel.updatePeriod(period)
+                            activeSheet = null
+                        },
+                        onDismiss = { activeSheet = null }
+                    )
+                    SettingsSheet.FISCAL_YEAR_START -> FiscalYearStartSheet(
+                        currentMonth = s.mandateConfig.fiscalYearStartMonth,
+                        onSave = { month ->
+                            viewModel.updateFiscalYearStartMonth(month)
                             activeSheet = null
                         },
                         onDismiss = { activeSheet = null }
@@ -276,6 +286,15 @@ private fun MandateSection(
             value = state.mandateConfig.period.label,
             onClick = { onOpenSheet(SettingsSheet.PERIOD) }
         )
+        if (state.mandateConfig.period == MandatePeriod.QUARTERLY) {
+            HorizontalDivider(modifier = Modifier.padding(start = 64.dp))
+            SettingsRow(
+                emoji = "🗓️",
+                label = "Fiscal year starts",
+                value = monthLabel(state.mandateConfig.fiscalYearStartMonth),
+                onClick = { onOpenSheet(SettingsSheet.FISCAL_YEAR_START) }
+            )
+        }
         HorizontalDivider(modifier = Modifier.padding(start = 64.dp))
         SettingsRow(
             emoji = "📆",

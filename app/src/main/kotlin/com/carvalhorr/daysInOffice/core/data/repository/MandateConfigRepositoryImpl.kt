@@ -19,12 +19,14 @@ class MandateConfigRepositoryImpl @Inject constructor(
     override fun getMandateConfig(): Flow<MandateConfig> = combine(
         preferencesDataSource.mandatePercentage,
         preferencesDataSource.mandatePeriod,
-        preferencesDataSource.workingDays
-    ) { percentage, period, workingDays ->
+        preferencesDataSource.workingDays,
+        preferencesDataSource.fiscalYearStartMonth
+    ) { percentage, period, workingDays, fiscalYearStartMonth ->
         MandateConfig(
             targetPercentage = percentage,
             period = period,
-            workingDays = workingDays
+            workingDays = workingDays,
+            fiscalYearStartMonth = fiscalYearStartMonth
         )
     }
 
@@ -32,6 +34,7 @@ class MandateConfigRepositoryImpl @Inject constructor(
         preferencesDataSource.saveMandatePercentage(config.targetPercentage)
         preferencesDataSource.saveMandatePeriod(config.period)
         preferencesDataSource.saveWorkingDays(config.workingDays)
+        preferencesDataSource.saveFiscalYearStartMonth(config.fiscalYearStartMonth)
     }
 
     override fun getDetectionConfig(): Flow<DetectionConfig> = combine(

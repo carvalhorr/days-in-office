@@ -1,12 +1,14 @@
 # Days in Office — Architecture Document
 
 > **Purpose:** This document is the authoritative reference for all agents implementing the Days in Office Android app. Read it fully before starting any task. Do not deviate from the structure defined here without updating this document first.
+>
+> **Drift note (2026-05-23):** the calendar-sync feature (`CalendarDataSource`, `SyncCalendarUseCase`, `CalendarSetupStep`, `READ_CALENDAR` permission, `getCalendarSyncEnabled` repo methods, `HolidayRepository.syncFromCalendar`) has been removed from the product. PTO and public holidays are now entered manually via the calendar view. File-tree and use-case sections below may reference removed files until the doc is fully revised.
 
 ---
 
 ## 1. App Overview
 
-**Days in Office** is an Android app that automatically tracks whether a user went to the office each workday and calculates their compliance with a configurable in-office mandate (default: 50%). It supports multiple detection methods, excludes PTO and public holidays from the calculation, and integrates with device calendars to read time-off data.
+**Days in Office** is an Android app that automatically tracks whether a user went to the office each workday and calculates their compliance with a configurable in-office mandate (default: 50%). It supports multiple detection methods. PTO and public holidays can be marked manually in the calendar view and are excluded from the calculation.
 
 ---
 

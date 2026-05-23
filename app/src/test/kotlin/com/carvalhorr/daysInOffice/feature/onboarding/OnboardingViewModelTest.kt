@@ -72,11 +72,6 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `given initial state when created then calendar sync is disabled`() {
-        assertFalse(viewModel.state.value.calendarSyncEnabled)
-    }
-
-    @Test
     fun `given initial state when created then no navigation event`() {
         assertNull(viewModel.state.value.navigationEvent)
     }
@@ -184,23 +179,9 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `given updateCalendarSync called when enabled then state is true`() {
-        viewModel.updateCalendarSync(true)
-        assertTrue(viewModel.state.value.calendarSyncEnabled)
-    }
-
-    @Test
-    fun `given updateCalendarSync called when disabled then state is false`() {
-        viewModel.updateCalendarSync(true)
-        viewModel.updateCalendarSync(false)
-        assertFalse(viewModel.state.value.calendarSyncEnabled)
-    }
-
-    @Test
     fun `given complete called then saveMandateConfig is invoked`() = runTest {
         coJustRun { mandateConfigRepository.saveMandateConfig(any()) }
         coJustRun { mandateConfigRepository.saveDetectionConfig(any()) }
-        coJustRun { mandateConfigRepository.saveCalendarSyncEnabled(any()) }
         coJustRun { mandateConfigRepository.saveOnboardingComplete(any()) }
 
         viewModel.complete()
@@ -213,7 +194,6 @@ class OnboardingViewModelTest {
     fun `given complete called then saveDetectionConfig is invoked`() = runTest {
         coJustRun { mandateConfigRepository.saveMandateConfig(any()) }
         coJustRun { mandateConfigRepository.saveDetectionConfig(any()) }
-        coJustRun { mandateConfigRepository.saveCalendarSyncEnabled(any()) }
         coJustRun { mandateConfigRepository.saveOnboardingComplete(any()) }
 
         viewModel.complete()
@@ -226,7 +206,6 @@ class OnboardingViewModelTest {
     fun `given complete called then saveOnboardingComplete true is invoked`() = runTest {
         coJustRun { mandateConfigRepository.saveMandateConfig(any()) }
         coJustRun { mandateConfigRepository.saveDetectionConfig(any()) }
-        coJustRun { mandateConfigRepository.saveCalendarSyncEnabled(any()) }
         coJustRun { mandateConfigRepository.saveOnboardingComplete(any()) }
 
         viewModel.complete()
@@ -239,7 +218,6 @@ class OnboardingViewModelTest {
     fun `given complete called then navigation event emitted`() = runTest {
         coJustRun { mandateConfigRepository.saveMandateConfig(any()) }
         coJustRun { mandateConfigRepository.saveDetectionConfig(any()) }
-        coJustRun { mandateConfigRepository.saveCalendarSyncEnabled(any()) }
         coJustRun { mandateConfigRepository.saveOnboardingComplete(any()) }
 
         viewModel.complete()
@@ -255,7 +233,6 @@ class OnboardingViewModelTest {
     fun `given navigation event when onNavigationHandled called then event cleared`() = runTest {
         coJustRun { mandateConfigRepository.saveMandateConfig(any()) }
         coJustRun { mandateConfigRepository.saveDetectionConfig(any()) }
-        coJustRun { mandateConfigRepository.saveCalendarSyncEnabled(any()) }
         coJustRun { mandateConfigRepository.saveOnboardingComplete(any()) }
 
         viewModel.complete()

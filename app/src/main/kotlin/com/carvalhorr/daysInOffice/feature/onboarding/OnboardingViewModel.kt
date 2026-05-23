@@ -33,7 +33,6 @@ data class OnboardingUiState(
         geofenceLongitude = null,
         geofenceRadiusMeters = null
     ),
-    val calendarSyncEnabled: Boolean = false,
     val navigationEvent: OnboardingNavigationEvent? = null
 )
 
@@ -50,7 +49,7 @@ class OnboardingViewModel @Inject constructor(
     val state: StateFlow<OnboardingUiState> = _state.asStateFlow()
 
     companion object {
-        const val TOTAL_STEPS = 4
+        const val TOTAL_STEPS = 3
     }
 
     fun next() {
@@ -109,16 +108,11 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    fun updateCalendarSync(enabled: Boolean) {
-        _state.update { s -> s.copy(calendarSyncEnabled = enabled) }
-    }
-
     fun complete() {
         viewModelScope.launch {
             val s = _state.value
             mandateConfigRepository.saveMandateConfig(s.mandateConfig)
             mandateConfigRepository.saveDetectionConfig(s.detectionConfig)
-            mandateConfigRepository.saveCalendarSyncEnabled(s.calendarSyncEnabled)
             mandateConfigRepository.saveOnboardingComplete(true)
             _state.update { it.copy(navigationEvent = OnboardingNavigationEvent.NavigateToDashboard) }
         }

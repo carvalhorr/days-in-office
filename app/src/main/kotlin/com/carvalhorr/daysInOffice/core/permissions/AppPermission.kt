@@ -17,11 +17,6 @@ enum class AppPermission(
         rationaleText = "Background location access allows the app to automatically detect office visits throughout the day.",
         deniedPermanentlyText = "Background location permission is required for automatic detection. Please enable it in app settings."
     ),
-    CALENDAR(
-        manifestPermission = Manifest.permission.READ_CALENDAR,
-        rationaleText = "Calendar access is needed to sync your PTO and holidays automatically.",
-        deniedPermanentlyText = "Calendar permission is required for PTO sync. Please enable it in app settings."
-    ),
     NOTIFICATIONS(
         manifestPermission = "android.permission.POST_NOTIFICATIONS",
         rationaleText = "Notifications allow the app to remind you to check in on office days.",

@@ -11,7 +11,6 @@ import com.carvalhorr.daysInOffice.core.domain.repository.MandateConfigRepositor
 import com.carvalhorr.daysInOffice.core.domain.usecase.GetComplianceUseCase
 import com.carvalhorr.daysInOffice.core.domain.usecase.RecordOfficeDayUseCase
 import com.carvalhorr.daysInOffice.core.domain.usecase.RecordRemoteDayUseCase
-import com.carvalhorr.daysInOffice.core.domain.usecase.SyncCalendarUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -34,8 +33,7 @@ sealed class DashboardUiState {
     data class Success(
         val complianceResult: ComplianceResult,
         val mandatePeriod: MandatePeriod,
-        val todayRecord: DayRecord?,
-        val isSyncing: Boolean = false
+        val todayRecord: DayRecord?
     ) : DashboardUiState()
     data class Error(val message: String) : DashboardUiState()
 }
@@ -46,12 +44,10 @@ class DashboardViewModel @Inject constructor(
     private val getComplianceUseCase: GetComplianceUseCase,
     private val recordOfficeDayUseCase: RecordOfficeDayUseCase,
     private val recordRemoteDayUseCase: RecordRemoteDayUseCase,
-    private val syncCalendarUseCase: SyncCalendarUseCase,
     private val dayRecordRepository: DayRecordRepository,
     private val mandateConfigRepository: MandateConfigRepository
 ) : ViewModel() {
 
-    private val _isSyncing = MutableStateFlow(false)
     private val _retrySignal = MutableStateFlow(0)
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage: SharedFlow<String> = _snackbarMessage.asSharedFlow()
@@ -60,9 +56,8 @@ class DashboardViewModel @Inject constructor(
         combine(
             getComplianceUseCase(),
             mandateConfigRepository.getMandateConfig(),
-            dayRecordRepository.getDayRecord(LocalDate.now()),
-            _isSyncing
-        ) { compliance, config, todayRecord, isSyncing ->
+            dayRecordRepository.getDayRecord(LocalDate.now())
+        ) { compliance, config, todayRecord ->
             val result: DashboardUiState = if (
                 compliance.officeDays + compliance.remoteDays + compliance.unknownDays == 0
             ) {
@@ -71,8 +66,7 @@ class DashboardViewModel @Inject constructor(
                 DashboardUiState.Success(
                     complianceResult = compliance,
                     mandatePeriod = config.period,
-                    todayRecord = todayRecord,
-                    isSyncing = isSyncing
+                    todayRecord = todayRecord
                 )
             }
             result
@@ -121,14 +115,6 @@ class DashboardViewModel @Inject constructor(
             }.onFailure { e ->
                 _snackbarMessage.emit(e.message ?: "Check-in failed")
             }
-        }
-    }
-
-    fun syncCalendar() {
-        viewModelScope.launch {
-            _isSyncing.value = true
-            syncCalendarUseCase()
-            _isSyncing.value = false
         }
     }
 

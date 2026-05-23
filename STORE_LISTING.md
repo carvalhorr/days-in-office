@@ -50,11 +50,9 @@ For every automatic detection the app sends you a notification asking
 "Were you at the office today?" — your tap is what records the day.
 The app never records an office day without your explicit yes.
 
-CALENDAR-AWARE
-Days in Office reads your device calendar (read-only) so it can
-exclude PTO and public holidays from your mandate calculation. You
-can also enter days off manually if you don't keep them in a
-calendar.
+PTO AND HOLIDAYS
+Mark a day as PTO or a public holiday from the calendar view, and
+the day stops counting toward your mandate target.
 
 MANDATE TARGET, YOUR WAY
   • Choose your target percentage (50% is the default).
@@ -73,8 +71,6 @@ PERMISSIONS
   • Wi-Fi state — only used to read the SSID of your current network
     or scan for nearby networks, and only if you enable Wi-Fi
     detection.
-  • Calendar (read-only) — only used to read PTO and public holidays
-    so they can be excluded from your mandate calculation.
   • Notifications — used to ask you to confirm a detected office day.
 
 You can change or revoke any of these from system settings; the rest

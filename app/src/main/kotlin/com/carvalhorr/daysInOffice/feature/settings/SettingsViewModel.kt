@@ -14,7 +14,6 @@ import com.carvalhorr.daysInOffice.core.domain.model.DetectionMethod
 import com.carvalhorr.daysInOffice.core.domain.model.MandateConfig
 import com.carvalhorr.daysInOffice.core.domain.model.MandatePeriod
 import com.carvalhorr.daysInOffice.core.domain.repository.MandateConfigRepository
-import com.carvalhorr.daysInOffice.core.domain.usecase.SyncCalendarUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,10 +37,7 @@ sealed class SettingsUiState {
     data object Loading : SettingsUiState()
     data class Success(
         val mandateConfig: MandateConfig,
-        val detectionConfig: DetectionConfig,
-        val calendarSyncEnabled: Boolean,
-        val isSyncing: Boolean = false,
-        val syncResult: String? = null
+        val detectionConfig: DetectionConfig
     ) : SettingsUiState()
     data class Error(val message: String) : SettingsUiState()
 }
@@ -60,7 +56,6 @@ sealed class OneShotResult {
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val mandateConfigRepository: MandateConfigRepository,
-    private val syncCalendarUseCase: SyncCalendarUseCase,
     private val geofenceDetector: GeofenceDetector,
     private val workManager: WorkManager
 ) : ViewModel() {
@@ -84,26 +79,17 @@ class SettingsViewModel @Inject constructor(
             geofenceRadiusMeters = null
         )
     )
-    private val _calendarSyncEnabled = MutableStateFlow(false)
-    private val _isSyncing = MutableStateFlow(false)
-    private val _syncResult = MutableStateFlow<String?>(null)
     private val _navigationEvent = MutableStateFlow<SettingsNavigationEvent?>(null)
     private val _oneShotResult = MutableSharedFlow<OneShotResult>(extraBufferCapacity = 1)
     val oneShotResult: SharedFlow<OneShotResult> = _oneShotResult.asSharedFlow()
 
     val state: StateFlow<SettingsUiState> = combine(
         _mandateConfig,
-        _detectionConfig,
-        _calendarSyncEnabled,
-        _isSyncing,
-        _syncResult
-    ) { mandateConfig, detectionConfig, calendarSyncEnabled, isSyncing, syncResult ->
+        _detectionConfig
+    ) { mandateConfig, detectionConfig ->
         val result: SettingsUiState = SettingsUiState.Success(
             mandateConfig = mandateConfig,
-            detectionConfig = detectionConfig,
-            calendarSyncEnabled = calendarSyncEnabled,
-            isSyncing = isSyncing,
-            syncResult = syncResult
+            detectionConfig = detectionConfig
         )
         result
     }
@@ -122,9 +108,6 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             mandateConfigRepository.getDetectionConfig().collect { _detectionConfig.value = it }
-        }
-        viewModelScope.launch {
-            mandateConfigRepository.getCalendarSyncEnabled().collect { _calendarSyncEnabled.value = it }
         }
     }
 
@@ -238,26 +221,6 @@ class SettingsViewModel @Inject constructor(
                         else -> OneShotResult.NoSignal
                     })
                 }
-        }
-    }
-
-    fun updateCalendarSync(enabled: Boolean) {
-        viewModelScope.launch {
-            _calendarSyncEnabled.value = enabled
-            mandateConfigRepository.saveCalendarSyncEnabled(enabled)
-        }
-    }
-
-    fun syncCalendar() {
-        viewModelScope.launch {
-            _isSyncing.value = true
-            _syncResult.value = null
-            val result = syncCalendarUseCase()
-            _isSyncing.value = false
-            _syncResult.value = result.fold(
-                onSuccess = { count -> "Synced $count event${if (count == 1) "" else "s"}" },
-                onFailure = { "Sync failed" }
-            )
         }
     }
 

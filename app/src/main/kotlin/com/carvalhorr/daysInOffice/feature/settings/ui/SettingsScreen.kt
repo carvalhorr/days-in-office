@@ -51,7 +51,6 @@ import com.carvalhorr.daysInOffice.feature.settings.OneShotResult
 import com.carvalhorr.daysInOffice.feature.settings.SettingsNavigationEvent
 import com.carvalhorr.daysInOffice.feature.settings.SettingsUiState
 import com.carvalhorr.daysInOffice.feature.settings.SettingsViewModel
-import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.CalendarSyncSheet
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.GeofenceSheet
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.PeriodSheet
 import com.carvalhorr.daysInOffice.feature.settings.ui.sheets.TargetSheet
@@ -63,7 +62,7 @@ import java.time.DayOfWeek
 import kotlin.math.roundToInt
 
 private enum class SettingsSheet {
-    TARGET, PERIOD, WORKING_DAYS, WIFI_CONNECTED, WIFI_SCAN, GEOFENCE, CALENDAR_SYNC
+    TARGET, PERIOD, WORKING_DAYS, WIFI_CONNECTED, WIFI_SCAN, GEOFENCE
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -138,7 +137,6 @@ fun SettingsScreen(
                 SettingsContent(
                     state = s,
                     onOpenSheet = { activeSheet = it },
-                    onSyncCalendar = viewModel::syncCalendar,
                     onResetOnboarding = viewModel::resetOnboarding,
                     modifier = Modifier.padding(paddingValues)
                 )
@@ -198,14 +196,6 @@ fun SettingsScreen(
                         },
                         onDismiss = { activeSheet = null }
                     )
-                    SettingsSheet.CALENDAR_SYNC -> CalendarSyncSheet(
-                        enabled = s.calendarSyncEnabled,
-                        onSave = { en ->
-                            viewModel.updateCalendarSync(en)
-                            activeSheet = null
-                        },
-                        onDismiss = { activeSheet = null }
-                    )
                     null -> {}
                 }
             }
@@ -217,7 +207,6 @@ fun SettingsScreen(
 private fun SettingsContent(
     state: SettingsUiState.Success,
     onOpenSheet: (SettingsSheet) -> Unit,
-    onSyncCalendar: () -> Unit,
     onResetOnboarding: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -232,7 +221,6 @@ private fun SettingsContent(
     ) {
         MandateSection(state = state, onOpenSheet = onOpenSheet)
         DetectionSection(state = state, onOpenSheet = onOpenSheet)
-        CalendarSection(state = state, onOpenSheet = onOpenSheet, onSyncCalendar = onSyncCalendar)
         SetupSection(onRerunSetupWizard = { showResetDialog = true })
         Spacer(Modifier.height(16.dp))
     }
@@ -317,54 +305,6 @@ private fun DetectionSection(
             value = if (geoEnabled) "On" else "Off",
             onClick = { onOpenSheet(SettingsSheet.GEOFENCE) }
         )
-    }
-}
-
-@Composable
-private fun CalendarSection(
-    state: SettingsUiState.Success,
-    onOpenSheet: (SettingsSheet) -> Unit,
-    onSyncCalendar: () -> Unit
-) {
-    SettingsSection(title = "Calendar") {
-        SettingsRow(
-            emoji = "🗓️",
-            label = "Calendar sync",
-            value = if (state.calendarSyncEnabled) "Enabled" else "Disabled",
-            onClick = { onOpenSheet(SettingsSheet.CALENDAR_SYNC) }
-        )
-        HorizontalDivider(modifier = Modifier.padding(start = 64.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = "Sync now",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                state.syncResult?.let { result ->
-                    Text(
-                        text = result,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            TextButton(
-                onClick = onSyncCalendar,
-                enabled = !state.isSyncing
-            ) {
-                if (state.isSyncing) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                } else {
-                    Text("🔄", style = MaterialTheme.typography.bodyLarge)
-                }
-            }
-        }
     }
 }
 

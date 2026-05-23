@@ -131,7 +131,6 @@ fun DashboardScreen(
                     state = s,
                     onCheckInOffice = viewModel::checkInAsOffice,
                     onCheckInRemote = viewModel::checkInAsRemote,
-                    onSyncCalendar = viewModel::syncCalendar,
                     showDetectionPrompt = showDetectionPrompt,
                     pendingDetectionMethod = pendingDetectionMethod,
                     onConfirmDetection = viewModel::confirmOfficeFromDetection,
@@ -148,7 +147,6 @@ private fun DashboardContent(
     state: DashboardUiState.Success,
     onCheckInOffice: () -> Unit,
     onCheckInRemote: () -> Unit,
-    onSyncCalendar: () -> Unit,
     showDetectionPrompt: Boolean = false,
     pendingDetectionMethod: DetectionMethod? = null,
     onConfirmDetection: () -> Unit = {},
@@ -199,16 +197,6 @@ private fun DashboardContent(
             onCheckInOffice = onCheckInOffice,
             onCheckInRemote = onCheckInRemote
         )
-
-        TextButton(
-            onClick = onSyncCalendar,
-            enabled = !state.isSyncing
-        ) {
-            Text(
-                text = if (state.isSyncing) "Syncing..." else "Sync calendar",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
 
         Spacer(modifier = Modifier.height(8.dp))
     }

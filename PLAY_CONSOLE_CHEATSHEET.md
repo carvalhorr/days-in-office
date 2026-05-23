@@ -92,8 +92,8 @@ This is the big one. Fill it as below.
 
 > "Does your app collect or share any of the required user data types?"
 
-**Answer:** *Yes* (because we read calendar events and store location
-for geofencing — both qualify even though they never leave the device).
+**Answer:** *Yes* (because we store location for geofencing — qualifies
+even though it never leaves the device).
 
 > "Is all of the user data collected by your app encrypted in transit?"
 
@@ -126,7 +126,6 @@ Specific declarations:
 |---|---|---|---|
 | **Location → Approximate location** | Geofence detection uses coarse location for the broad fix | App functionality | Optional |
 | **Location → Precise location** | Geofence detection uses fine location for the radius check | App functionality | Optional |
-| **Personal info → Other info (calendar events)** | We read titles + dates of PTO and holiday events | App functionality | Optional |
 | **App activity → App interactions** | We store "did the user tap Yes on a detection notification?" | App functionality, Analytics?: **No** | Optional |
 | **App info and performance → Crash logs** | **Do NOT declare.** We do not collect crash logs. |  |  |
 | **Device or other IDs** | **Do NOT declare.** We do not read advertising ID, IMEI, or any other device identifier. |  |  |
@@ -222,7 +221,7 @@ Skip — not applicable.
 ## 13. App category
 
 **Category:** *Productivity*.
-**Tags:** *time management, productivity, work, calendar, attendance*.
+**Tags:** *time management, productivity, work, attendance*.
 
 ---
 

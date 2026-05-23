@@ -7,6 +7,5 @@ import java.time.LocalDate
 interface HolidayRepository {
     fun getHolidays(start: LocalDate, end: LocalDate): Flow<List<Holiday>>
     suspend fun upsertHoliday(holiday: Holiday)
-    suspend fun syncFromCalendar(start: LocalDate, end: LocalDate)
     suspend fun clearAndReplace(holidays: List<Holiday>)
 }

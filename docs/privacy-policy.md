@@ -37,16 +37,6 @@ have.
   SSID(s) you configure, and the timestamp of matches you confirm.
 * **Opt-out:** turn off Wi-Fi detection in Settings → Detection.
 
-### Calendar (read-only)
-
-* **Permission:** `READ_CALENDAR`
-* **Why:** to read PTO and public-holiday events so they can be excluded
-  from your in-office mandate calculation. The app reads event titles
-  and dates; it does not modify, share, or upload your calendar.
-* **Opt-out:** turn off calendar sync in Settings → Calendar. The app
-  will then assume Mon–Fri are working days unless you mark specific
-  days as PTO manually.
-
 ### Notifications
 
 * **Permission:** `POST_NOTIFICATIONS`

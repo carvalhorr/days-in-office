@@ -82,11 +82,6 @@ fun OnboardingScreen(
                         onUpdateWifiSsid = viewModel::updateWifiSsid,
                         onUpdateGeofence = viewModel::updateGeofence
                     )
-                    3 -> CalendarSetupStep(
-                        calendarSyncEnabled = state.calendarSyncEnabled,
-                        onCalendarSyncChanged = viewModel::updateCalendarSync,
-                        onRequestPermission = {}
-                    )
                 }
             }
 

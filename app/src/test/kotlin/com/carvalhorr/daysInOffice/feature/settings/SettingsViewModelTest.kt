@@ -9,7 +9,6 @@ import com.carvalhorr.daysInOffice.core.domain.model.DetectionMethod
 import com.carvalhorr.daysInOffice.core.domain.model.MandateConfig
 import com.carvalhorr.daysInOffice.core.domain.model.MandatePeriod
 import com.carvalhorr.daysInOffice.core.domain.repository.MandateConfigRepository
-import com.carvalhorr.daysInOffice.core.domain.usecase.SyncCalendarUseCase
 import io.mockk.coEvery
 import io.mockk.coJustRun
 import io.mockk.coVerify
@@ -39,7 +38,6 @@ class SettingsViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val mandateConfigRepository: MandateConfigRepository = mockk()
-    private val syncCalendarUseCase: SyncCalendarUseCase = mockk()
     private val geofenceDetector: GeofenceDetector = mockk(relaxed = true)
     private val workManager: WorkManager = mockk(relaxed = true)
 
@@ -74,14 +72,12 @@ class SettingsViewModelTest {
     private fun setupMocks() {
         every { mandateConfigRepository.getMandateConfig() } returns flowOf(defaultMandateConfig)
         every { mandateConfigRepository.getDetectionConfig() } returns flowOf(defaultDetectionConfig)
-        every { mandateConfigRepository.getCalendarSyncEnabled() } returns flowOf(false)
         coJustRun { mandateConfigRepository.saveMandateConfig(any()) }
         coJustRun { mandateConfigRepository.saveDetectionConfig(any()) }
-        coJustRun { mandateConfigRepository.saveCalendarSyncEnabled(any()) }
         coJustRun { mandateConfigRepository.saveOnboardingComplete(any()) }
     }
 
-    private fun createViewModel() = SettingsViewModel(mandateConfigRepository, syncCalendarUseCase, geofenceDetector, workManager)
+    private fun createViewModel() = SettingsViewModel(mandateConfigRepository, geofenceDetector, workManager)
 
     @Test
     fun `given initial state when created then state is Loading`() {
@@ -270,69 +266,6 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `given updateCalendarSync called with true then saveCalendarSyncEnabled invoked with true`() = runTest {
-        val viewModel = createViewModel()
-
-        viewModel.updateCalendarSync(true)
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        coVerify { mandateConfigRepository.saveCalendarSyncEnabled(true) }
-    }
-
-    @Test
-    fun `given updateCalendarSync called with false then saveCalendarSyncEnabled invoked with false`() = runTest {
-        val viewModel = createViewModel()
-
-        viewModel.updateCalendarSync(false)
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        coVerify { mandateConfigRepository.saveCalendarSyncEnabled(false) }
-    }
-
-    @Test
-    fun `given syncCalendar called then SyncCalendarUseCase is invoked`() = runTest {
-        coEvery { syncCalendarUseCase() } returns Result.success(5)
-        val viewModel = createViewModel()
-
-        viewModel.syncCalendar()
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        coVerify { syncCalendarUseCase() }
-    }
-
-    @Test
-    fun `given syncCalendar succeeds then syncResult shows count`() = runTest {
-        coEvery { syncCalendarUseCase() } returns Result.success(3)
-        val viewModel = createViewModel()
-
-        viewModel.syncCalendar()
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        viewModel.state.test {
-            awaitItem() // Loading
-            val success = awaitItem() as? SettingsUiState.Success
-            assertEquals("Synced 3 events", success?.syncResult)
-            cancelAndConsumeRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `given syncCalendar fails then syncResult shows failure message`() = runTest {
-        coEvery { syncCalendarUseCase() } returns Result.failure(RuntimeException("Error"))
-        val viewModel = createViewModel()
-
-        viewModel.syncCalendar()
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        viewModel.state.test {
-            awaitItem() // Loading
-            val success = awaitItem() as? SettingsUiState.Success
-            assertEquals("Sync failed", success?.syncResult)
-            cancelAndConsumeRemainingEvents()
-        }
-    }
-
-    @Test
     fun `given resetOnboarding called then saveOnboardingComplete false is invoked`() = runTest {
         val viewModel = createViewModel()
 
@@ -423,31 +356,6 @@ class SettingsViewModelTest {
 
         coVerify {
             mandateConfigRepository.saveDetectionConfig(match { it.wifiSsid == null })
-        }
-    }
-
-    @Test
-    fun `given calendarSyncEnabled false when state success then calendarSyncEnabled is false`() = runTest {
-        val viewModel = createViewModel()
-
-        viewModel.state.test {
-            awaitItem() // Loading
-            val success = awaitItem() as SettingsUiState.Success
-            assertFalse(success.calendarSyncEnabled)
-            cancelAndConsumeRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `given calendarSyncEnabled true when state success then calendarSyncEnabled is true`() = runTest {
-        every { mandateConfigRepository.getCalendarSyncEnabled() } returns flowOf(true)
-        val viewModel = createViewModel()
-
-        viewModel.state.test {
-            awaitItem() // Loading
-            val success = awaitItem() as SettingsUiState.Success
-            assertTrue(success.calendarSyncEnabled)
-            cancelAndConsumeRemainingEvents()
         }
     }
 

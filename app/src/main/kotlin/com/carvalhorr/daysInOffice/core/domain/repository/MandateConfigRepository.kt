@@ -13,8 +13,6 @@ interface MandateConfigRepository {
     suspend fun saveDetectionConfig(config: DetectionConfig)
     fun getOnboardingComplete(): Flow<Boolean>
     suspend fun saveOnboardingComplete(complete: Boolean)
-    fun getCalendarSyncEnabled(): Flow<Boolean>
-    suspend fun saveCalendarSyncEnabled(enabled: Boolean)
     suspend fun markDetectorDismissed(method: DetectionMethod, date: LocalDate)
     suspend fun isDetectorDismissedToday(method: DetectionMethod, date: LocalDate): Boolean
 }

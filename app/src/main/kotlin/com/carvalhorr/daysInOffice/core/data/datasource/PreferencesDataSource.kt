@@ -41,7 +41,6 @@ class PreferencesDataSource @Inject constructor(
         private val GEOFENCE_LNG = floatPreferencesKey("geofence_lng")
         private val GEOFENCE_RADIUS = floatPreferencesKey("geofence_radius")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
-        val CALENDAR_SYNC_ENABLED = booleanPreferencesKey("calendar_sync_enabled")
         val GEOFENCE_INSIDE = booleanPreferencesKey("geofence_inside")
         private val DETECTOR_DISMISSALS = stringPreferencesKey("detector_dismissals")
 
@@ -100,10 +99,6 @@ class PreferencesDataSource @Inject constructor(
         prefs[ONBOARDING_COMPLETE] ?: false
     }
 
-    val calendarSyncEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
-        prefs[CALENDAR_SYNC_ENABLED] ?: false
-    }
-
     val geofenceInside: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[GEOFENCE_INSIDE] ?: false
     }
@@ -156,10 +151,6 @@ class PreferencesDataSource @Inject constructor(
 
     suspend fun saveOnboardingComplete(value: Boolean) {
         dataStore.edit { prefs -> prefs[ONBOARDING_COMPLETE] = value }
-    }
-
-    suspend fun saveCalendarSyncEnabled(value: Boolean) {
-        dataStore.edit { prefs -> prefs[CALENDAR_SYNC_ENABLED] = value }
     }
 
     suspend fun saveGeofenceInside(value: Boolean) {

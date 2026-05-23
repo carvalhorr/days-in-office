@@ -67,12 +67,6 @@ class MandateConfigRepositoryImpl @Inject constructor(
         preferencesDataSource.saveOnboardingComplete(complete)
     }
 
-    override fun getCalendarSyncEnabled(): Flow<Boolean> = preferencesDataSource.calendarSyncEnabled
-
-    override suspend fun saveCalendarSyncEnabled(enabled: Boolean) {
-        preferencesDataSource.saveCalendarSyncEnabled(enabled)
-    }
-
     override suspend fun markDetectorDismissed(method: DetectionMethod, date: LocalDate) {
         preferencesDataSource.markDetectorDismissed(method, date)
     }

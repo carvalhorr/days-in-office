@@ -21,10 +21,6 @@ class HolidayRepositoryImpl @Inject constructor(
     override suspend fun upsertHoliday(holiday: Holiday) =
         dao.upsert(holiday.toEntity())
 
-    override suspend fun syncFromCalendar(start: LocalDate, end: LocalDate) {
-        // CalendarDataSource integration deferred to a future task
-    }
-
     override suspend fun clearAndReplace(holidays: List<Holiday>) {
         dao.deleteAll()
         holidays.forEach { dao.upsert(it.toEntity()) }

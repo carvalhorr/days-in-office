@@ -12,7 +12,6 @@ import com.carvalhorr.daysInOffice.core.domain.repository.MandateConfigRepositor
 import com.carvalhorr.daysInOffice.core.domain.usecase.GetComplianceUseCase
 import com.carvalhorr.daysInOffice.core.domain.usecase.RecordOfficeDayUseCase
 import com.carvalhorr.daysInOffice.core.domain.usecase.RecordRemoteDayUseCase
-import com.carvalhorr.daysInOffice.core.domain.usecase.SyncCalendarUseCase
 import io.mockk.coEvery
 import io.mockk.coJustRun
 import io.mockk.coVerify
@@ -43,7 +42,6 @@ class DashboardViewModelTest {
     private val getComplianceUseCase: GetComplianceUseCase = mockk()
     private val recordOfficeDayUseCase: RecordOfficeDayUseCase = mockk()
     private val recordRemoteDayUseCase: RecordRemoteDayUseCase = mockk()
-    private val syncCalendarUseCase: SyncCalendarUseCase = mockk()
     private val dayRecordRepository: DayRecordRepository = mockk()
     private val mandateConfigRepository: MandateConfigRepository = mockk()
 
@@ -86,7 +84,6 @@ class DashboardViewModelTest {
         getComplianceUseCase,
         recordOfficeDayUseCase,
         recordRemoteDayUseCase,
-        syncCalendarUseCase,
         dayRecordRepository,
         mandateConfigRepository
     )

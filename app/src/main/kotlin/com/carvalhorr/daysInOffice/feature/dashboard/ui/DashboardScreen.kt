@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.carvalhorr.daysInOffice.app.theme.BrandPeriodChipBg
@@ -78,7 +79,7 @@ fun DashboardScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Days in Office") },
+                title = { Text(stringResource(com.carvalhorr.daysInOffice.R.string.app_name)) },
                 actions = {
                     IconButton(onClick = onNavigateToSettings) {
                         Text("⚙️", style = MaterialTheme.typography.titleLarge)

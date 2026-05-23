@@ -160,6 +160,17 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun updatePeriodAndFiscalYearStart(period: MandatePeriod, fiscalYearStartMonth: Int) {
+        viewModelScope.launch {
+            val newConfig = _mandateConfig.value.copy(
+                period = period,
+                fiscalYearStartMonth = fiscalYearStartMonth.coerceIn(1, 12)
+            )
+            _mandateConfig.value = newConfig
+            mandateConfigRepository.saveMandateConfig(newConfig)
+        }
+    }
+
     fun updateWifiConnected(enabled: Boolean, ssid: String?) {
         viewModelScope.launch {
             val current = _detectionConfig.value

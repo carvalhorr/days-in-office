@@ -113,6 +113,10 @@ private fun DayCell(
     } else Modifier
 
     val backgroundColor = if (record != null) dayStatusBackground(record.status) else androidx.compose.ui.graphics.Color.Transparent
+    // Non-workdays (DayStatus.WEEKEND) carry no tracking signal; dim their day
+    // number so they visibly recede from cells that need user attention.
+    val isNonWorkday = record?.status == DayStatus.WEEKEND
+    val textAlpha = if (isNonWorkday) 0.35f else 1f
 
     Box(
         modifier = modifier
@@ -140,7 +144,8 @@ private fun DayCell(
                 Text(
                     text = date.dayOfMonth.toString(),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.alpha(textAlpha)
                 )
             }
         }

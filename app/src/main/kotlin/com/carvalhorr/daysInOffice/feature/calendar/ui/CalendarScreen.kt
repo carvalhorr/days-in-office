@@ -1,5 +1,6 @@
 package com.carvalhorr.daysInOffice.feature.calendar.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -143,18 +144,19 @@ private fun CalendarLegend(modifier: Modifier = Modifier) {
         LegendItem(color = DayStatusOfficeColor, label = "Office")
         LegendItem(color = DayStatusRemoteColor, label = "Remote")
         LegendItem(color = DayStatusHolidayColor, label = "Holiday/PTO")
-        LegendItem(color = Color(0xFFBDBDBD), label = "Weekend")
         LegendItem(color = DayStatusUnknownColor, label = "Unknown")
+        LegendItem(color = MaterialTheme.colorScheme.outline, label = "Non-workday", outlined = true)
     }
 }
 
 @Composable
-private fun LegendItem(color: Color, label: String) {
+private fun LegendItem(color: Color, label: String, outlined: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Surface(
             modifier = Modifier.size(10.dp),
             shape = CircleShape,
-            color = color
+            color = if (outlined) Color.Transparent else color,
+            border = if (outlined) BorderStroke(1.5.dp, color) else null
         ) {}
         Spacer(modifier = Modifier.width(4.dp))
         Text(

@@ -6,13 +6,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -23,8 +21,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.carvalhorr.daysInOffice.app.theme.dayStatusColor
+import com.carvalhorr.daysInOffice.app.theme.dayStatusBackground
 import com.carvalhorr.daysInOffice.core.domain.model.DayRecord
+import com.carvalhorr.daysInOffice.core.domain.model.DayStatus
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -113,38 +112,37 @@ private fun DayCell(
         Modifier.semantics { contentDescription = "$date, $statusName" }
     } else Modifier
 
+    val backgroundColor = if (record != null) dayStatusBackground(record.status) else androidx.compose.ui.graphics.Color.Transparent
+
     Box(
         modifier = modifier
             .aspectRatio(1f)
-            .alpha(cellAlpha)
-            .then(
-                if (onClick != null) {
-                    Modifier.combinedClickable(
-                        onClick = onClick,
-                        onLongClick = onLongClick
-                    )
-                } else Modifier
-            )
-            .then(cellSemantics),
+            .padding(2.dp)
+            .alpha(cellAlpha),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (onClick != null) {
+                        Modifier.combinedClickable(
+                            onClick = onClick,
+                            onLongClick = onLongClick
+                        )
+                    } else Modifier
+                )
+                .then(cellSemantics),
+            shape = RoundedCornerShape(10.dp),
+            color = backgroundColor
         ) {
-            if (record != null) {
-                Surface(
-                    modifier = Modifier.size(8.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.dayStatusColor(record.status)
-                ) {}
-                Spacer(modifier = Modifier.height(2.dp))
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = date.dayOfMonth.toString(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
-            Text(
-                text = date.dayOfMonth.toString(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
         }
     }
 }

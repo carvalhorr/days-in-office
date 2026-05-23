@@ -57,7 +57,7 @@ fun PeriodSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState()
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {
         Column(
             modifier = Modifier

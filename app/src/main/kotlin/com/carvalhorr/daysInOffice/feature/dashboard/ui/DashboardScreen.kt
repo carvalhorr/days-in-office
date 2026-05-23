@@ -133,6 +133,7 @@ fun DashboardScreen(
                     state = s,
                     onCheckInOffice = viewModel::checkInAsOffice,
                     onCheckInRemote = viewModel::checkInAsRemote,
+                    onClearToday = viewModel::clearToday,
                     showDetectionPrompt = showDetectionPrompt,
                     pendingDetectionMethod = pendingDetectionMethod,
                     onConfirmDetection = viewModel::confirmOfficeFromDetection,
@@ -149,6 +150,7 @@ private fun DashboardContent(
     state: DashboardUiState.Success,
     onCheckInOffice: () -> Unit,
     onCheckInRemote: () -> Unit,
+    onClearToday: () -> Unit,
     showDetectionPrompt: Boolean = false,
     pendingDetectionMethod: DetectionMethod? = null,
     onConfirmDetection: () -> Unit = {},
@@ -204,7 +206,8 @@ private fun DashboardContent(
             NonWorkdayCheckInCard(
                 today = today,
                 currentStatus = state.todayRecord?.status,
-                onCheckInOffice = onCheckInOffice
+                onCheckInOffice = onCheckInOffice,
+                onClearToday = onClearToday
             )
         }
 
@@ -216,14 +219,15 @@ private fun DashboardContent(
 private fun NonWorkdayCheckInCard(
     today: LocalDate,
     currentStatus: DayStatus?,
-    onCheckInOffice: () -> Unit
+    onCheckInOffice: () -> Unit,
+    onClearToday: () -> Unit
 ) {
     val dayFormatter = DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.getDefault())
     val officeSelected = currentStatus == DayStatus.OFFICE
     val subtitleText = if (officeSelected) {
-        "✓ Office (bonus day — counts toward your goal)"
+        "✓ Office — counted toward your goal. Tap again to clear."
     } else {
-        "Non-workday — Office counts as a bonus toward your goal."
+        "Tap Office if you went in today — it'll count toward your goal."
     }
 
     Card(
@@ -248,7 +252,7 @@ private fun NonWorkdayCheckInCard(
             )
             if (officeSelected) {
                 Button(
-                    onClick = onCheckInOffice,
+                    onClick = onClearToday,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = colorOfficeGreen)
                 ) {

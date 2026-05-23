@@ -4,7 +4,10 @@ import app.cash.turbine.test
 import com.carvalhorr.daysInOffice.core.domain.model.DayRecord
 import com.carvalhorr.daysInOffice.core.domain.model.DayStatus
 import com.carvalhorr.daysInOffice.core.domain.model.DetectionMethod
+import com.carvalhorr.daysInOffice.core.domain.model.MandateConfig
+import com.carvalhorr.daysInOffice.core.domain.model.MandatePeriod
 import com.carvalhorr.daysInOffice.core.domain.repository.DayRecordRepository
+import com.carvalhorr.daysInOffice.core.domain.repository.MandateConfigRepository
 import com.carvalhorr.daysInOffice.core.domain.usecase.GetCalendarMonthUseCase
 import io.mockk.coJustRun
 import io.mockk.coVerify
@@ -23,6 +26,7 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -32,6 +36,16 @@ class CalendarViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private val getCalendarMonthUseCase: GetCalendarMonthUseCase = mockk()
     private val dayRecordRepository: DayRecordRepository = mockk()
+    private val mandateConfigRepository: MandateConfigRepository = mockk()
+
+    private val weekdaysConfig = MandateConfig(
+        targetPercentage = 0.5f,
+        period = MandatePeriod.MONTHLY,
+        workingDays = setOf(
+            DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+            DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
+        )
+    )
 
     @BeforeEach
     fun setUp() {
@@ -45,11 +59,13 @@ class CalendarViewModelTest {
 
     private fun setupMocks(days: List<DayRecord> = emptyList()) {
         every { getCalendarMonthUseCase(any()) } returns flowOf(days)
+        every { mandateConfigRepository.getMandateConfig() } returns flowOf(weekdaysConfig)
     }
 
     private fun createViewModel() = CalendarViewModel(
         getCalendarMonthUseCase,
-        dayRecordRepository
+        dayRecordRepository,
+        mandateConfigRepository
     )
 
     @Test

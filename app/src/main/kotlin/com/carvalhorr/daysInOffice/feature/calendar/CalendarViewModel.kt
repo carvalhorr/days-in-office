@@ -6,6 +6,7 @@ import com.carvalhorr.daysInOffice.core.domain.model.DayRecord
 import com.carvalhorr.daysInOffice.core.domain.model.DayStatus
 import com.carvalhorr.daysInOffice.core.domain.model.DetectionMethod
 import com.carvalhorr.daysInOffice.core.domain.repository.DayRecordRepository
+import com.carvalhorr.daysInOffice.core.domain.repository.MandateConfigRepository
 import com.carvalhorr.daysInOffice.core.domain.usecase.GetCalendarMonthUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -36,7 +38,8 @@ sealed class CalendarUiState {
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     private val getCalendarMonthUseCase: GetCalendarMonthUseCase,
-    private val dayRecordRepository: DayRecordRepository
+    private val dayRecordRepository: DayRecordRepository,
+    private val mandateConfigRepository: MandateConfigRepository
 ) : ViewModel() {
 
     private val _currentMonth = MutableStateFlow(YearMonth.now())
@@ -97,13 +100,18 @@ class CalendarViewModel @Inject constructor(
     }
 
     /**
-     * Cycle the tapped day through Unknown → Office → Remote → PTO → Unknown.
-     * Long-press on a cell still opens the day-detail sheet for direct access
-     * to Holiday / clearing / etc.
+     * Cycle the tapped day's status.
+     *
+     * Workdays: Unknown → Office → Remote → PTO → (clear, reverts to default).
+     * Non-workdays: Office ↔ default only — Remote/PTO are ignored by the
+     * mandate calculation anyway, so cycling through them would be a no-op
+     * and confusing. Long-press still opens the full menu for direct access.
      */
     fun cycleDayStatus(currentRecord: DayRecord) {
-        val next = nextStatusInCycle(currentRecord.status)
         viewModelScope.launch {
+            val config = mandateConfigRepository.getMandateConfig().first()
+            val isWorkday = currentRecord.date.dayOfWeek in config.workingDays
+            val next = nextStatusInCycle(currentRecord.status, isWorkday)
             if (next == null) {
                 dayRecordRepository.deleteDayRecord(currentRecord.date)
             } else {
@@ -119,12 +127,22 @@ class CalendarViewModel @Inject constructor(
         }
     }
 
-    private fun nextStatusInCycle(current: DayStatus): DayStatus? = when (current) {
-        DayStatus.UNKNOWN, DayStatus.WEEKEND, DayStatus.HOLIDAY -> DayStatus.OFFICE
-        DayStatus.OFFICE -> DayStatus.REMOTE
-        DayStatus.REMOTE -> DayStatus.PTO
-        DayStatus.PTO -> null  // delete the record; status reverts to the derived default
-    }
+    private fun nextStatusInCycle(current: DayStatus, isWorkday: Boolean): DayStatus? =
+        if (!isWorkday) {
+            // Non-workday: only Office <-> default (delete). Remote / PTO would
+            // be ignored by the compliance calc and wouldn't help the user.
+            when (current) {
+                DayStatus.OFFICE -> null  // clear; date reverts to its derived default (WEEKEND)
+                else -> DayStatus.OFFICE
+            }
+        } else {
+            when (current) {
+                DayStatus.UNKNOWN, DayStatus.WEEKEND, DayStatus.HOLIDAY -> DayStatus.OFFICE
+                DayStatus.OFFICE -> DayStatus.REMOTE
+                DayStatus.REMOTE -> DayStatus.PTO
+                DayStatus.PTO -> null  // delete the record; status reverts to the derived default
+            }
+        }
 
     fun retry() {
         _retrySignal.value++

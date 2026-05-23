@@ -122,6 +122,20 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Clear today's record entirely (revert to no-data). Used by the
+     * non-workday card to let the user un-mark a mistapped Office day.
+     */
+    fun clearToday() {
+        viewModelScope.launch {
+            runCatching {
+                dayRecordRepository.deleteDayRecord(LocalDate.now())
+            }.onFailure { e ->
+                _snackbarMessage.emit(e.message ?: "Could not clear today's record")
+            }
+        }
+    }
+
     fun retry() {
         _retrySignal.value++
     }

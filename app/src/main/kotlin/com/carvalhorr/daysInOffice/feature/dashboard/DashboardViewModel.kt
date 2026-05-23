@@ -33,7 +33,8 @@ sealed class DashboardUiState {
     data class Success(
         val complianceResult: ComplianceResult,
         val mandatePeriod: MandatePeriod,
-        val todayRecord: DayRecord?
+        val todayRecord: DayRecord?,
+        val isTodayWorkday: Boolean
     ) : DashboardUiState()
     data class Error(val message: String) : DashboardUiState()
 }
@@ -58,6 +59,8 @@ class DashboardViewModel @Inject constructor(
             mandateConfigRepository.getMandateConfig(),
             dayRecordRepository.getDayRecord(LocalDate.now())
         ) { compliance, config, todayRecord ->
+            val today = LocalDate.now()
+            val isTodayWorkday = today.dayOfWeek in config.workingDays
             val result: DashboardUiState = if (
                 compliance.officeDays + compliance.remoteDays + compliance.unknownDays == 0
             ) {
@@ -66,7 +69,8 @@ class DashboardViewModel @Inject constructor(
                 DashboardUiState.Success(
                     complianceResult = compliance,
                     mandatePeriod = config.period,
-                    todayRecord = todayRecord
+                    todayRecord = todayRecord,
+                    isTodayWorkday = isTodayWorkday
                 )
             }
             result

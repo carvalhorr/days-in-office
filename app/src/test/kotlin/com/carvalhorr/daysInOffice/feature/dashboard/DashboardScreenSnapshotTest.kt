@@ -38,7 +38,8 @@ class DashboardScreenSnapshotTest {
         val success: DashboardUiState = DashboardUiState.Success(
             complianceResult = sampleCompliance,
             mandatePeriod = MandatePeriod.MONTHLY,
-            todayRecord = null
+            todayRecord = null,
+            isTodayWorkday = true
         )
         assertNotNull(loading)
         assertNotNull(empty)
@@ -83,7 +84,8 @@ class DashboardScreenSnapshotTest {
         val success = DashboardUiState.Success(
             complianceResult = sampleCompliance,
             mandatePeriod = MandatePeriod.MONTHLY,
-            todayRecord = null
+            todayRecord = null,
+            isTodayWorkday = true
         )
         assertEquals(sampleCompliance, success.complianceResult)
         assertEquals(MandatePeriod.MONTHLY, success.mandatePeriod)

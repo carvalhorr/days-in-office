@@ -39,6 +39,63 @@ class GetComplianceUseCaseTest {
     )
 
     @Test
+    fun `given a Saturday Office record outside the workingDays set when invoked then officeDays gets bonus credit and totalWorkingDays unchanged`() = runTest {
+        val config = MandateConfig(
+            targetPercentage = 0.5f,
+            period = MandatePeriod.MONTHLY,
+            workingDays = weekdays()
+        )
+        // Mon-Fri workdays: May 11..15
+        val workingDays = (11..15).map { LocalDate.of(2026, 5, it) }
+        // 2 weekday office days, plus 1 Saturday (16th) office day = bonus credit.
+        val officeRecords = listOf(
+            DayRecord(LocalDate.of(2026, 5, 11), DayStatus.OFFICE, null, true),
+            DayRecord(LocalDate.of(2026, 5, 12), DayStatus.OFFICE, null, true),
+            DayRecord(LocalDate.of(2026, 5, 16), DayStatus.OFFICE, null, true)  // Saturday, NOT in workingDays
+        )
+        every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
+        every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(officeRecords)
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns workingDays
+
+        useCase().test {
+            val result = awaitItem()
+            // 3 office days: 2 workday + 1 Saturday bonus
+            assertEquals(3, result.officeDays)
+            // Total workdays unchanged: still 5 (Mon-Fri)
+            assertEquals(5, result.totalWorkingDays)
+            // 3/5 = 60%
+            assertEquals(0.6f, result.currentPercentage, 0.001f)
+            awaitComplete()
+        }
+    }
+
+    @Test
+    fun `given a Saturday Remote record outside the workingDays set when invoked then remoteDays does NOT change`() = runTest {
+        val config = MandateConfig(
+            targetPercentage = 0.5f,
+            period = MandatePeriod.MONTHLY,
+            workingDays = weekdays()
+        )
+        val workingDays = (11..15).map { LocalDate.of(2026, 5, it) }
+        // 1 Tuesday remote day (counts) + 1 Saturday remote day (ignored)
+        val records = listOf(
+            DayRecord(LocalDate.of(2026, 5, 12), DayStatus.REMOTE, null, true),
+            DayRecord(LocalDate.of(2026, 5, 16), DayStatus.REMOTE, null, true)  // Saturday, ignored
+        )
+        every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
+        every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(records)
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns workingDays
+
+        useCase().test {
+            val result = awaitItem()
+            assertEquals(0, result.officeDays)
+            assertEquals(1, result.remoteDays)  // Only the Tuesday counts
+            assertEquals(5, result.totalWorkingDays)
+            awaitComplete()
+        }
+    }
+
+    @Test
     fun `given monthly period and 10 working days and 5 office records when invoked then currentPercentage=0_5 and isCompliant=true`() = runTest {
         val config = MandateConfig(
             targetPercentage = 0.5f,

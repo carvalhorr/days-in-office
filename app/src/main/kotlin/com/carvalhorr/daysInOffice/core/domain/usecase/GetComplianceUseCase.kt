@@ -72,8 +72,16 @@ class GetComplianceUseCase @Inject constructor(
             .map { it.date }
             .toSet()
         val effectiveWorkingDays = workingDays.filter { it !in userExcludedDays }
+        val workingDaySet = workingDays.toSet()
 
-        val officeDays = effectiveWorkingDays.count { recordMap[it]?.status == DayStatus.OFFICE }
+        val workdayOfficeDays = effectiveWorkingDays.count { recordMap[it]?.status == DayStatus.OFFICE }
+        // Non-workday Office days are bonus credit toward the mandate: they
+        // count toward officeDays but don't change totalWorkingDays. Remote
+        // and PTO/Holiday records on non-workdays are ignored.
+        val nonWorkdayOfficeBonus = records.count {
+            it.status == DayStatus.OFFICE && it.date !in workingDaySet
+        }
+        val officeDays = workdayOfficeDays + nonWorkdayOfficeBonus
         val remoteDays = effectiveWorkingDays.count { recordMap[it]?.status == DayStatus.REMOTE }
         val unknownDays = effectiveWorkingDays.count {
             recordMap[it] == null || recordMap[it]?.status == DayStatus.UNKNOWN

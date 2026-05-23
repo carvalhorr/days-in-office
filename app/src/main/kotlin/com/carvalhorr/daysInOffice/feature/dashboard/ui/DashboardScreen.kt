@@ -28,6 +28,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Button
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -191,14 +193,78 @@ private fun DashboardContent(
 
         StatsStrip(compliance = compliance)
 
-        CheckInCard(
-            today = today,
-            currentStatus = state.todayRecord?.status,
-            onCheckInOffice = onCheckInOffice,
-            onCheckInRemote = onCheckInRemote
-        )
+        if (state.isTodayWorkday) {
+            CheckInCard(
+                today = today,
+                currentStatus = state.todayRecord?.status,
+                onCheckInOffice = onCheckInOffice,
+                onCheckInRemote = onCheckInRemote
+            )
+        } else {
+            NonWorkdayCheckInCard(
+                today = today,
+                currentStatus = state.todayRecord?.status,
+                onCheckInOffice = onCheckInOffice
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun NonWorkdayCheckInCard(
+    today: LocalDate,
+    currentStatus: DayStatus?,
+    onCheckInOffice: () -> Unit
+) {
+    val dayFormatter = DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.getDefault())
+    val officeSelected = currentStatus == DayStatus.OFFICE
+    val subtitleText = if (officeSelected) {
+        "✓ Office (bonus day — counts toward your goal)"
+    } else {
+        "Non-workday — Office counts as a bonus toward your goal."
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Today — ${today.format(dayFormatter)}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = subtitleText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (officeSelected) {
+                Button(
+                    onClick = onCheckInOffice,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = colorOfficeGreen)
+                ) {
+                    Text("🏢 Office")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onCheckInOffice,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colorOfficeGreen),
+                    border = BorderStroke(1.dp, colorOfficeGreen)
+                ) {
+                    Text("🏢 Office")
+                }
+            }
+        }
     }
 }
 

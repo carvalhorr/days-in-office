@@ -37,34 +37,67 @@ Persistent todo list for shipping the Days in Office Android app to the Google P
 
 ## Remaining manual gates before first ship
 
-Things this pass could not automate. **You must do these before clicking
-"Submit to internal testing" in Play Console**:
+Things automated by this pass:
 
-1. **Replace the placeholder launcher icon glyph.** See `STORE_LISTING.md` →
-   "Launcher icon audit". The current foreground is a single white circle.
-2. **Take phone screenshots.** Four flows scripted in
-   `STORE_LISTING.md` → "Screenshot script (when a device is available)".
-   Needs a connected device or emulator.
-3. **Enable GitHub Pages and confirm the privacy-policy URL resolves.**
-   Repo Settings → Pages → Source = `main` / `/docs`. The policy already
-   names the target URL.
-4. **Smoke the R8 build on a real device.** `./gradlew bundleRelease` is
-   verified to produce a signed bundle; only an actual install + flow
-   tour can catch shrinker-induced crashes.
-5. **Bootstrap upload to Play Console.** First `.aab` must be uploaded
-   manually (the auto-publish plugin can only update apps Play already
-   knows about). Steps in `PLAY_CONSOLE_CHEATSHEET.md` §16.
-6. **Add the five GitHub repo secrets** (`KEYSTORE_BASE64`,
-   `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`,
-   `PLAY_SERVICE_ACCOUNT_JSON`). Without them the release workflow can
-   still build, but it can't sign or publish. See
-   `PLAY_CONSOLE_CHEATSHEET.md` §16.
-7. **Back up the keystore.** Three locations recommended; checklist in
-   `KEYSTORE_README.md`.
-8. **Push both repos to remotes.** This pass kept the split local per
-   the deployment plan; the experiment clone at
-   `/Users/carvalhorr/code/days-in-office-experiment` and this product
-   repo both still need GitHub remotes set.
+- ✅ Launcher icon replaced (palette-5 ring + "50%"). `play-assets/icon-512.png`.
+- ✅ Play Store screenshots taken at 1080×2400, light mode, on the
+  release build (R8-minified). `play-assets/screenshots/{1..4}.png`.
+- ✅ R8 release build smoke-verified on emulator. No shrinker-induced
+  crashes; all screens render.
+- ✅ `FOREGROUND_SERVICE` permission removed (was unused; Play Console
+  would have flagged it).
+- ✅ Both repos pushed to GitHub remotes.
+
+Still on your side:
+
+1. **Enable GitHub Pages.** Repo Settings → Pages → Source = `main` /
+   `/docs`. Confirm `https://carvalhorr.github.io/days-in-office/privacy-policy`
+   resolves. The policy URL is already named in
+   `PLAY_CONSOLE_CHEATSHEET.md`.
+
+2. **Design the 1024×500 feature graphic.** Required by Play Console
+   for the main listing. Suggested content in
+   `STORE_LISTING.md` → "Store-listing assets checklist". Tools: Figma /
+   Canva / similar. Save as `play-assets/feature-graphic-1024x500.png`.
+
+3. **Back up the keystore.** `app/upload-keystore.jks` + the password
+   from `KEYSTORE_README.md`. Three locations recommended:
+   1Password (Document attach), external drive / encrypted vault,
+   and the GitHub Secrets created in step 5 below.
+
+4. **Add the five GitHub repo secrets** for the auto-publish workflow:
+   `KEYSTORE_BASE64` (`base64 -i app/upload-keystore.jks | tr -d '\n'`),
+   `KEYSTORE_PASSWORD` (from `KEYSTORE_README.md`),
+   `KEY_ALIAS` (`upload`),
+   `KEY_PASSWORD` (same as `KEYSTORE_PASSWORD`),
+   `PLAY_SERVICE_ACCOUNT_JSON` (raw contents of the JSON key — see step 6).
+
+5. **Bootstrap upload to Play Console** (the first upload has to be
+   manual — gradle-play-publisher can only *update* apps Play already
+   knows about):
+   1. Play Console → All apps → Create app. Name "Days in the Office",
+      English (UK), free, app.
+   2. Paste store listing fields from `STORE_LISTING.md` (title, short
+      description, full description). Upload `play-assets/icon-512.png`
+      and the four screenshots from `play-assets/screenshots/`.
+   3. App content → fill every section using `PLAY_CONSOLE_CHEATSHEET.md`
+      answers (privacy policy URL = step 1; data safety; content
+      rating; target audience 18+; ads = no; background-location
+      declaration + 30-45 s justification video).
+   4. Enable Play App Signing when prompted (recommended — Google
+      holds the distribution key; you keep only the upload key).
+   5. Internal testing → Create new release → upload
+      `app/build/outputs/bundle/release/app-release.aab` manually.
+
+6. **Create the Play service account for auto-publish** (steps in
+   `PLAY_CONSOLE_CHEATSHEET.md` §16): GCP service account → grant
+   *Release Manager* in Play Console → save the JSON key as the
+   `PLAY_SERVICE_ACCOUNT_JSON` secret from step 4.
+
+7. **From v1.0.1 onward**: `git tag v1.0.1 && git push --tags` runs the
+   `.github/workflows/release.yml` workflow, which builds + signs the
+   bundle, attaches it to a GitHub Release, and pushes to Play's
+   internal testing track. Production promotion stays manual.
 
 ## Side concern
 

@@ -27,7 +27,7 @@ class GetComplianceUseCase @Inject constructor(
             val today = LocalDate.now()
             val (start, end) = getPeriodBounds(config, today)
             dayRecordRepository.getDayRecords(start, end).map { records ->
-                val workingDays = getWorkingDaysUseCase(start, end)
+                val workingDays = getWorkingDaysUseCase(start, end, config.workingDays)
                 buildResult(config, records, workingDays, start, end)
             }
         }

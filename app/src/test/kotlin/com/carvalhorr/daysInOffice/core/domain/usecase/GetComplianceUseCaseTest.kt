@@ -51,7 +51,7 @@ class GetComplianceUseCaseTest {
         }
         every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
         every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(officeRecords)
-        coEvery { getWorkingDaysUseCase(any(), any()) } returns workingDays
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns workingDays
 
         useCase().test {
             val result = awaitItem()
@@ -74,7 +74,7 @@ class GetComplianceUseCaseTest {
         }
         every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
         every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(officeRecords)
-        coEvery { getWorkingDaysUseCase(any(), any()) } returns workingDays
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns workingDays
 
         useCase().test {
             val result = awaitItem()
@@ -163,7 +163,7 @@ class GetComplianceUseCaseTest {
         )
         every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
         every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(emptyList())
-        coEvery { getWorkingDaysUseCase(any(), any()) } returns emptyList()
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns emptyList()
 
         useCase().test {
             val result = awaitItem()
@@ -186,7 +186,7 @@ class GetComplianceUseCaseTest {
         )
         every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
         every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(emptyList())
-        coEvery { getWorkingDaysUseCase(any(), any()) } returns emptyList()
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns emptyList()
 
         useCase().test {
             val result = awaitItem()
@@ -212,7 +212,7 @@ class GetComplianceUseCaseTest {
         )
         every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
         every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(emptyList())
-        coEvery { getWorkingDaysUseCase(any(), any()) } returns workingDays
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns workingDays
 
         useCase().test {
             val result = awaitItem()
@@ -235,7 +235,7 @@ class GetComplianceUseCaseTest {
         )
         every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
         every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(records)
-        coEvery { getWorkingDaysUseCase(any(), any()) } returns workingDays
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns workingDays
 
         useCase().test {
             val result = awaitItem()
@@ -263,7 +263,7 @@ class GetComplianceUseCaseTest {
         )
         every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
         every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(records)
-        coEvery { getWorkingDaysUseCase(any(), any()) } returns workingDays
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns workingDays
 
         useCase().test {
             val result = awaitItem()
@@ -288,7 +288,7 @@ class GetComplianceUseCaseTest {
         )
         every { mandateConfigRepository.getMandateConfig() } returns flowOf(config)
         every { dayRecordRepository.getDayRecords(any(), any()) } returns flowOf(records)
-        coEvery { getWorkingDaysUseCase(any(), any()) } returns workingDays
+        coEvery { getWorkingDaysUseCase(any(), any(), any()) } returns workingDays
 
         useCase().test {
             val result = awaitItem()

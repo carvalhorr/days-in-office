@@ -18,6 +18,11 @@ class GetWorkingDaysUseCaseTest {
     private val holidayRepository: HolidayRepository = mockk()
     private lateinit var useCase: GetWorkingDaysUseCase
 
+    private val weekdays = setOf(
+        DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+        DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
+    )
+
     @BeforeEach
     fun setUp() {
         useCase = GetWorkingDaysUseCase(holidayRepository)
@@ -29,7 +34,7 @@ class GetWorkingDaysUseCaseTest {
         val end = LocalDate.of(2026, 5, 15)   // Friday
         every { holidayRepository.getHolidays(start, end) } returns flowOf(emptyList())
 
-        val result = useCase(start, end)
+        val result = useCase(start, end, weekdays)
 
         assertEquals(5, result.size)
     }
@@ -43,7 +48,7 @@ class GetWorkingDaysUseCaseTest {
             listOf(Holiday(date = wednesday, name = "Test Holiday", isPublicHoliday = true, source = "MANUAL"))
         )
 
-        val result = useCase(start, end)
+        val result = useCase(start, end, weekdays)
 
         assertEquals(4, result.size)
         assertFalse(result.contains(wednesday))
@@ -55,7 +60,7 @@ class GetWorkingDaysUseCaseTest {
         val end = LocalDate.of(2026, 5, 17)   // Sunday
         every { holidayRepository.getHolidays(start, end) } returns flowOf(emptyList())
 
-        val result = useCase(start, end)
+        val result = useCase(start, end, weekdays)
 
         assertEquals(5, result.size)
         assertFalse(result.any { it.dayOfWeek == DayOfWeek.SATURDAY })
@@ -71,9 +76,37 @@ class GetWorkingDaysUseCaseTest {
             listOf(Holiday(date = ptoDay, name = "PTO", isPublicHoliday = false, source = "CALENDAR"))
         )
 
-        val result = useCase(start, end)
+        val result = useCase(start, end, weekdays)
 
         assertEquals(4, result.size)
         assertFalse(result.contains(ptoDay))
+    }
+
+    @Test
+    fun `given custom workingDays Mon-Thu when invoked over a week then Friday is excluded`() = runTest {
+        val start = LocalDate.of(2026, 5, 11) // Monday
+        val end = LocalDate.of(2026, 5, 17)   // Sunday
+        val monThru = setOf(
+            DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY
+        )
+        every { holidayRepository.getHolidays(start, end) } returns flowOf(emptyList())
+
+        val result = useCase(start, end, monThru)
+
+        assertEquals(4, result.size)
+        assertFalse(result.any { it.dayOfWeek == DayOfWeek.FRIDAY })
+    }
+
+    @Test
+    fun `given Saturday in workingDays when invoked over a week then Saturday counted`() = runTest {
+        val start = LocalDate.of(2026, 5, 11) // Monday
+        val end = LocalDate.of(2026, 5, 17)   // Sunday
+        val mondayThruSaturday = weekdays + DayOfWeek.SATURDAY
+        every { holidayRepository.getHolidays(start, end) } returns flowOf(emptyList())
+
+        val result = useCase(start, end, mondayThruSaturday)
+
+        assertEquals(6, result.size)
+        assertFalse(result.any { it.dayOfWeek == DayOfWeek.SUNDAY })
     }
 }

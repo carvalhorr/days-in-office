@@ -9,9 +9,11 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.carvalhorr.daysInOffice.core.detection.DetectionOrchestrator
+import com.carvalhorr.daysInOffice.core.domain.repository.MandateConfigRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.flow.first
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -22,7 +24,8 @@ private const val TAG = "Detection"
 class DayDetectionWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
-    private val detectionOrchestrator: DetectionOrchestrator
+    private val detectionOrchestrator: DetectionOrchestrator,
+    private val mandateConfigRepository: MandateConfigRepository
 ) : CoroutineWorker(context, workerParams) {
 
     @AssistedFactory
@@ -34,7 +37,8 @@ class DayDetectionWorker @AssistedInject constructor(
         val forceRun = inputData.getBoolean("force_run", false)
         val today = LocalDate.now()
         val now = LocalTime.now()
-        val willRun = shouldRun(forceRun, today, now)
+        val workingDays = mandateConfigRepository.getMandateConfig().first().workingDays
+        val willRun = shouldRun(forceRun, today, now, workingDays)
         Log.i(TAG, "DayDetectionWorker.doWork: entry (forceRun=$forceRun, shouldRun=$willRun)")
         if (!willRun) return Result.success()
         Log.i(TAG, "DayDetectionWorker.doWork: calling orchestrator")
@@ -48,14 +52,21 @@ class DayDetectionWorker @AssistedInject constructor(
         private val WORK_START = LocalTime.of(7, 0)
         private val WORK_END = LocalTime.of(19, 0)
 
-        internal fun shouldDetect(date: LocalDate, time: LocalTime): Boolean {
-            val dow = date.dayOfWeek
-            if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY) return false
+        internal fun shouldDetect(
+            date: LocalDate,
+            time: LocalTime,
+            workingDays: Set<DayOfWeek>
+        ): Boolean {
+            if (date.dayOfWeek !in workingDays) return false
             return !time.isBefore(WORK_START) && !time.isAfter(WORK_END)
         }
 
-        internal fun shouldRun(forceRun: Boolean, date: LocalDate, time: LocalTime): Boolean =
-            forceRun || shouldDetect(date, time)
+        internal fun shouldRun(
+            forceRun: Boolean,
+            date: LocalDate,
+            time: LocalTime,
+            workingDays: Set<DayOfWeek>
+        ): Boolean = forceRun || shouldDetect(date, time, workingDays)
 
         fun schedule(workManager: WorkManager) {
             val request = PeriodicWorkRequestBuilder<DayDetectionWorker>(2, TimeUnit.HOURS).build()

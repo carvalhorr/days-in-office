@@ -104,8 +104,7 @@ class DailyCheckInNotificationWorker @AssistedInject constructor(
             dayOfWeek: DayOfWeek,
             workingDays: Set<DayOfWeek>
         ): Boolean {
-            if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) return false
-            if (!workingDays.contains(dayOfWeek)) return false
+            if (dayOfWeek !in workingDays) return false
             return status == DayStatus.UNKNOWN
         }
     }

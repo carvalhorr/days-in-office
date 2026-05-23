@@ -96,6 +96,36 @@ class CalendarViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Cycle the tapped day through Unknown → Office → Remote → PTO → Unknown.
+     * Long-press on a cell still opens the day-detail sheet for direct access
+     * to Holiday / clearing / etc.
+     */
+    fun cycleDayStatus(currentRecord: DayRecord) {
+        val next = nextStatusInCycle(currentRecord.status)
+        viewModelScope.launch {
+            if (next == null) {
+                dayRecordRepository.deleteDayRecord(currentRecord.date)
+            } else {
+                dayRecordRepository.upsertDayRecord(
+                    DayRecord(
+                        date = currentRecord.date,
+                        status = next,
+                        detectionMethod = if (next == DayStatus.OFFICE || next == DayStatus.REMOTE) DetectionMethod.MANUAL else null,
+                        confirmedByUser = true
+                    )
+                )
+            }
+        }
+    }
+
+    private fun nextStatusInCycle(current: DayStatus): DayStatus? = when (current) {
+        DayStatus.UNKNOWN, DayStatus.WEEKEND, DayStatus.HOLIDAY -> DayStatus.OFFICE
+        DayStatus.OFFICE -> DayStatus.REMOTE
+        DayStatus.REMOTE -> DayStatus.PTO
+        DayStatus.PTO -> null  // delete the record; status reverts to the derived default
+    }
+
     fun retry() {
         _retrySignal.value++
     }

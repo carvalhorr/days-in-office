@@ -115,7 +115,8 @@ fun CalendarScreen(viewModel: CalendarViewModel) {
                         MonthCalendarView(
                             yearMonth = s.currentMonth,
                             days = s.days,
-                            onDayClick = viewModel::selectDay,
+                            onDayClick = viewModel::cycleDayStatus,
+                            onDayLongClick = viewModel::selectDay,
                             modifier = Modifier.weight(1f)
                         )
                         CalendarLegend(modifier = Modifier.padding(vertical = 12.dp))

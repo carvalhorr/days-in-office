@@ -1,6 +1,7 @@
 package com.carvalhorr.daysInOffice.feature.calendar.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +32,8 @@ import java.time.YearMonth
 fun MonthCalendarView(
     yearMonth: YearMonth,
     days: List<DayRecord>,
-    onDayClick: (LocalDate) -> Unit,
+    onDayClick: (DayRecord) -> Unit,
+    onDayLongClick: (LocalDate) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val firstDay = yearMonth.atDay(1)
@@ -79,11 +81,13 @@ fun MonthCalendarView(
         for (row in rows) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 for ((date, isCurrentMonth) in row) {
+                    val record = if (isCurrentMonth) dayMap[date] else null
                     DayCell(
                         date = date,
-                        record = if (isCurrentMonth) dayMap[date] else null,
+                        record = record,
                         isCurrentMonth = isCurrentMonth,
-                        onClick = if (isCurrentMonth) ({ onDayClick(date) }) else null,
+                        onClick = if (isCurrentMonth && record != null) ({ onDayClick(record) }) else null,
+                        onLongClick = if (isCurrentMonth) ({ onDayLongClick(date) }) else null,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -92,12 +96,14 @@ fun MonthCalendarView(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DayCell(
     date: LocalDate,
     record: DayRecord?,
     isCurrentMonth: Boolean,
     onClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val cellAlpha = if (isCurrentMonth) 1f else 0.3f
@@ -111,7 +117,14 @@ private fun DayCell(
         modifier = modifier
             .aspectRatio(1f)
             .alpha(cellAlpha)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(
+                if (onClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    )
+                } else Modifier
+            )
             .then(cellSemantics),
         contentAlignment = Alignment.Center
     ) {

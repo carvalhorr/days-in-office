@@ -103,7 +103,10 @@ case where data does leave.)
 
 > "Do you provide a way for users to request that their data be deleted?"
 
-**Answer:** *Yes — via Settings → Privacy → Delete all data*.
+**Answer:** *No* (the field is optional). The shipped app has no in-app
+data-reset control yet — uninstalling the app removes all on-device data,
+which is the full set. Add a "Delete all data" control in v1.x and switch
+this to *Yes* with a URL.
 
 > "Has your app been independently validated against a global security
 > standard?"

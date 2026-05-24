@@ -87,10 +87,11 @@ Privacy if you prefer.
 ## Data you can export or delete
 
 * **Export:** not yet available; planned for a future version.
-* **Delete:** Settings → Privacy → "Delete all data" wipes the database
-  and preferences. Uninstalling the app also removes everything
-  (subject to the operating system's standard backup behaviour — to be
-  thorough, disable backup before uninstall).
+* **Delete:** uninstalling the app removes its local database and all
+  preferences, which is the full set of data the app stores. An in-app
+  "Delete all data" control is planned for a future version. Subject to
+  Android's standard backup behaviour — to be thorough, disable backup
+  for the app before uninstalling.
 
 ## Children's privacy
 

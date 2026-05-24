@@ -1,3 +1,9 @@
+---
+layout: default
+title: Privacy Policy — Days in Office
+permalink: /privacy-policy
+---
+
 # Privacy Policy — Days in Office
 
 **Effective date:** 2026-05-22

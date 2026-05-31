@@ -10,12 +10,17 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.carvalhorr.daysInOffice.core.domain.model.DetectionConfig
 import com.carvalhorr.daysInOffice.core.domain.model.DetectionMethod
 import com.carvalhorr.daysInOffice.feature.shared.ui.GeofencePicker
+import com.carvalhorr.daysInOffice.feature.shared.ui.LocationDisclosureCard
 import com.carvalhorr.daysInOffice.feature.shared.ui.WifiSsidPicker
 
 @Composable
@@ -29,6 +34,9 @@ fun DetectionSetupStep(
     val showWifiSsid = detectionConfig.enabledMethods.contains(DetectionMethod.WIFI_CONNECTED) ||
             detectionConfig.enabledMethods.contains(DetectionMethod.WIFI_SCAN)
     val showGeofence = detectionConfig.enabledMethods.contains(DetectionMethod.GEOFENCE)
+    // Prominent disclosure must precede the geofence picker (and thus the
+    // background-location permission request) during onboarding as well.
+    var locationDisclosureAccepted by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -81,12 +89,16 @@ fun DetectionSetupStep(
         }
 
         if (showGeofence) {
-            GeofencePicker(
-                latitude = detectionConfig.geofenceLatitude,
-                longitude = detectionConfig.geofenceLongitude,
-                radius = detectionConfig.geofenceRadiusMeters,
-                onUpdate = onUpdateGeofence
-            )
+            if (!locationDisclosureAccepted) {
+                LocationDisclosureCard(onContinue = { locationDisclosureAccepted = true })
+            } else {
+                GeofencePicker(
+                    latitude = detectionConfig.geofenceLatitude,
+                    longitude = detectionConfig.geofenceLongitude,
+                    radius = detectionConfig.geofenceRadiusMeters,
+                    onUpdate = onUpdateGeofence
+                )
+            }
         }
     }
 }

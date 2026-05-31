@@ -43,6 +43,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.carvalhorr.daysInOffice.core.permissions.AppPermission
 import com.carvalhorr.daysInOffice.core.permissions.rememberPermissionRequester
 import com.carvalhorr.daysInOffice.feature.shared.ui.GeofencePicker
+import com.carvalhorr.daysInOffice.feature.shared.ui.LocationDisclosureCard
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,6 +65,10 @@ fun GeofenceSheet(
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     var hasBackgroundLocation by remember { mutableStateOf(false) }
+    // Google Play prominent-disclosure gate: the user must acknowledge how
+    // background location is used before the app can request the permission.
+    // Skipped once the permission is already granted.
+    var disclosureAccepted by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME || event == Lifecycle.Event.ON_START) {
@@ -118,7 +123,11 @@ fun GeofenceSheet(
                         checked = draftEnabled,
                         onCheckedChange = { newValue ->
                             draftEnabled = newValue
-                            if (newValue) {
+                            // Only request notifications now if no prominent
+                            // disclosure will be shown. Otherwise defer until the
+                            // user taps Continue, so the notification system prompt
+                            // never appears on top of the disclosure.
+                            if (newValue && hasBackgroundLocation) {
                                 coroutineScope.launch {
                                     permissionRequester.request(AppPermission.NOTIFICATIONS)
                                 }
@@ -126,7 +135,17 @@ fun GeofenceSheet(
                         }
                     )
                 }
-                if (draftEnabled) {
+                if (draftEnabled && !hasBackgroundLocation && !disclosureAccepted) {
+                    Spacer(Modifier.height(8.dp))
+                    LocationDisclosureCard(
+                        onContinue = {
+                            disclosureAccepted = true
+                            coroutineScope.launch {
+                                permissionRequester.request(AppPermission.NOTIFICATIONS)
+                            }
+                        }
+                    )
+                } else if (draftEnabled) {
                     GeofencePicker(
                         latitude = draftGeofenceLat,
                         longitude = draftGeofenceLng,
